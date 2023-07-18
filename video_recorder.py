@@ -34,9 +34,10 @@ class VideoRecorder:
         Start recording the frames from the webcam.
         """
         self.recording = True
+        print(self.webcam_capture.get_fps())
         self.video_writer = cv2.VideoWriter(
-            'output.avi',
-            cv2.VideoWriter_fourcc(*'MJPG'),
+            'output.mp4',
+            cv2.VideoWriter_fourcc(*'mp4v'),
             self.webcam_capture.get_fps(),
             (self.webcam_capture.get_frame_width(), self.webcam_capture.get_frame_height())
         )
