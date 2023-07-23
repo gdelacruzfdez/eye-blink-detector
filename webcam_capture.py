@@ -3,8 +3,8 @@ import cv2
 import numpy as np
 
 class WebcamCapture:
-    def __init__(self):
-        self.cap = cv2.VideoCapture(0)
+    def __init__(self, device=0):
+        self.cap = cv2.VideoCapture(device)
 
     def get_frame(self) -> Optional[np.ndarray]:
         """
@@ -50,3 +50,14 @@ class WebcamCapture:
             float: Frames per second.
         """
         return self.cap.get(cv2.CAP_PROP_FPS)
+
+    @staticmethod        
+    def get_available_cameras(max_range):
+        cameras = []
+        for i in range(max_range):
+            cap = cv2.VideoCapture(i)
+            if cap.read()[0]:
+                cameras.append(str(i))
+            cap.release()
+        return cameras
+

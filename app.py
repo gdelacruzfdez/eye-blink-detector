@@ -13,12 +13,17 @@ import time
 
 class EyeDetectionApp:
     def __init__(self):
+        self.root = tk.Tk()
+
+        self.cameras = WebcamCapture.get_available_cameras(5)
+        self.selected_camera = tk.StringVar(self.root)
+        self.selected_camera.set(self.cameras[0])  # default camera is '0'
+        self.webcam_capture = WebcamCapture(int(self.selected_camera.get()))
         self.frame_queue = Queue()
+
         self.eye_detector = EyeDetector()
-        self.webcam_capture = WebcamCapture()
         self.video_recorder = VideoRecorder(self.webcam_capture)
         self.frame_processor = FrameProcessor()
-        self.root = tk.Tk()
         self.video_label = tk.Label(self.root)
         self.left_eye_label = tk.Label(self.root)
         self.right_eye_label = tk.Label(self.root)
@@ -77,6 +82,14 @@ class EyeDetectionApp:
 
         # Recording time label
         self.recording_time_label.grid(row=5, column=0, columnspan=2, pady=5)
+
+        # Webcam selection label
+        camera_selection_label = tk.Label(self.root, text="Select Camera:", font=("Arial", 12, "bold"))
+        camera_selection_label.grid(row=6, column=0, pady=5)
+
+        # Webcam selector
+        self.camera_selector = tk.OptionMenu(self.root, self.selected_camera, *self.cameras, command=self.switch_camera)
+        self.camera_selector.grid(row=6, column=1, pady=5)
 
         self.root.protocol("WM_DELETE_WINDOW", self.stop)
 
@@ -138,6 +151,12 @@ class EyeDetectionApp:
                 self.frame_queue.put(frame)
             time.sleep(0.01)  # Introduce a delay of 10 milliseconds
 
+    def switch_camera(self, selection):
+        """
+        Switch the webcam based on the dropdown selection.
+        """
+        self.webcam_capture.release()
+        self.webcam_capture = WebcamCapture(int(selection))
 
     def refresh_display(self):
         """
