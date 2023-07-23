@@ -8,6 +8,7 @@ from eye_detector import EyeDetector
 from frame_processor import FrameProcessor
 from video_recorder import VideoRecorder
 from webcam_capture import WebcamCapture
+from screeninfo import get_monitors
 
 class EyeDetectionApp:
     def __init__(self):
@@ -30,6 +31,24 @@ class EyeDetectionApp:
         Set up the user interface elements.
         """
         self.root.title("Eye Detection and Recording")
+
+        frame_width = self.webcam_capture.get_frame_width()
+        frame_height = self.webcam_capture.get_frame_height()
+
+        aspect_ratio = frame_width / frame_height
+
+        monitor = get_monitors()[0]
+        screen_width = monitor.width
+
+        # Set a fixed window width and height
+        self.window_width = int(screen_width / 3)
+        window_height_aspect_ratio = int(self.window_width / aspect_ratio)
+        self.window_height = int(1.8 * window_height_aspect_ratio)
+
+        # Set the window size and make it non-resizable
+        self.root.geometry(f"{self.window_width}x{self.window_height}")
+        self.root.resizable(False, False)
+        
 
         # Video label
         self.video_label.grid(row=0, column=0, columnspan=2, padx=10, pady=10)
@@ -126,22 +145,23 @@ class EyeDetectionApp:
             frame_width = self.webcam_capture.get_frame_width()
             frame_height = self.webcam_capture.get_frame_height()
 
+            aspect_ratio = frame_width / frame_height
+            
             eye_boxes = self.eye_detector.calculate_eye_boxes(frame)
             frame_with_boxes = self.frame_processor.visualize_eye_boxes(frame, eye_boxes)
             left_eye_images, right_eye_images = self.frame_processor.extract_eye_images(frame, eye_boxes)
             left_eye_image = left_eye_images[0] if len(left_eye_images) > 0 else Image.new("RGB", (1, 1), (0, 0, 0))  # Placeholder black image
             right_eye_image = right_eye_images[0] if len(right_eye_images) > 0 else Image.new("RGB", (1, 1), (0, 0, 0))  # Placeholder black image
 
-            # Resize the images to fit the display
-            frame_with_boxes = frame_with_boxes.resize((frame_width, frame_height), Image.BILINEAR)
-            left_eye_image = left_eye_image.resize(
-                (int(frame_width / 2) - 20, int(frame_height / 3) - 20),
-                Image.BILINEAR,
-            )
-            right_eye_image = right_eye_image.resize(
-                (int(frame_width / 2) - 20, int(frame_height / 3) - 20),
-                Image.BILINEAR,
-            )
+            frame_new_width = self.window_width - 40
+            frame_new_height = int(self.window_width / aspect_ratio)
+
+            # Resize the frame to full window width and adjusted height
+            frame_with_boxes = frame_with_boxes.resize((frame_new_width , frame_new_height), Image.BILINEAR)
+
+            # Resize the eye images to half window width and adjusted height
+            left_eye_image = left_eye_image.resize((frame_new_width // 2, frame_new_height // 3), Image.BILINEAR)
+            right_eye_image = right_eye_image.resize((frame_new_width // 2, frame_new_height // 3), Image.BILINEAR)
 
             # Convert the PIL Images to Tkinter PhotoImage format
             tk_frame = ImageTk.PhotoImage(frame_with_boxes)
