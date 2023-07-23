@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 from typing import Callable, Optional
 from webcam_capture import WebcamCapture
+import time
 
 class VideoRecorder:
     def __init__(self, webcam_capture: WebcamCapture):
@@ -10,6 +11,7 @@ class VideoRecorder:
         self.video_writer = None
         self.on_recording_start: Optional[Callable[[], None]] = None
         self.on_recording_end: Optional[Callable[[], None]] = None
+        self.start_recording_time = None
 
     def set_recording_start_callback(self, callback: Callable[[], None]):
         """
@@ -34,7 +36,7 @@ class VideoRecorder:
         Start recording the frames from the webcam.
         """
         self.recording = True
-        print(self.webcam_capture.get_fps())
+        self.start_recording_time = time.time()
         self.video_writer = cv2.VideoWriter(
             'output.mp4',
             cv2.VideoWriter_fourcc(*'mp4v'),
@@ -49,6 +51,7 @@ class VideoRecorder:
         Stop recording and release the video writer.
         """
         self.recording = False
+        self.start_recording_time = None
         if self.video_writer is not None:
             self.video_writer.release()
             self.video_writer = None

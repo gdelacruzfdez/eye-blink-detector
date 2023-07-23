@@ -9,6 +9,7 @@ from frame_processor import FrameProcessor
 from video_recorder import VideoRecorder
 from webcam_capture import WebcamCapture
 from screeninfo import get_monitors
+import time
 
 class EyeDetectionApp:
     def __init__(self):
@@ -23,6 +24,7 @@ class EyeDetectionApp:
         self.right_eye_label = tk.Label(self.root)
         self.record_button = tk.Button(self.root, text="Start Recording", command=self.toggle_recording)
         self.recording_indicator = tk.Label(self.root, text="Not Recording", fg="red", font=("Arial", 12, "bold"))
+        self.recording_time_label = tk.Label(self.root, text="00:00:00", font=("Arial", 12, "bold"))
         self.stop_recording_flag = threading.Event()
         
 
@@ -73,6 +75,9 @@ class EyeDetectionApp:
         # Recording indicator
         self.recording_indicator.grid(row=4, column=0, columnspan=2, pady=5)
 
+        # Recording time label
+        self.recording_time_label.grid(row=5, column=0, columnspan=2, pady=5)
+
         self.root.protocol("WM_DELETE_WINDOW", self.stop)
 
     def start(self):
@@ -82,7 +87,7 @@ class EyeDetectionApp:
         self.setup_ui()
         self.recording_thread = threading.Thread(target=self.record_frames)
         self.recording_thread.start()
-        self.update_frame()
+        self.refresh_display()
         self.root.mainloop()
 
     def stop(self):
@@ -110,6 +115,7 @@ class EyeDetectionApp:
             self.video_recorder.stop_recording()
             self.record_button.configure(text="Start Recording")
             self.recording_indicator.configure(text="Not Recording", fg="red")
+            self.recording_time_label.configure(text="00:00:00")
 
     def record_frames(self):
         frame_count = 0
@@ -133,9 +139,27 @@ class EyeDetectionApp:
             time.sleep(0.01)  # Introduce a delay of 10 milliseconds
 
 
-    def update_frame(self):
+    def refresh_display(self):
         """
-        Update the frame and UI labels with the latest webcam frame.
+        Refresh the display, which includes updating the frames, images, and recording duration.
+        """
+        self.display_recording_duration()
+        self.display_frames_and_images()
+        self.video_label.after(10, self.refresh_display)
+
+    def display_recording_duration(self):
+        """
+        Display the recording duration if recording.
+        """
+        if self.video_recorder.recording and self.video_recorder.start_recording_time is not None:
+            elapsed_time = int(time.time() - self.video_recorder.start_recording_time)
+            hours, remainder = divmod(elapsed_time, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            self.recording_time_label.configure(text=f"{hours:02}:{minutes:02}:{seconds:02}")
+
+    def display_frames_and_images(self):
+        """
+        Display the frames and UI labels with the latest webcam frames and images.
         """
         frame = None
         while not self.frame_queue.empty():
@@ -175,6 +199,3 @@ class EyeDetectionApp:
             self.left_eye_label.image = tk_left_eye
             self.right_eye_label.configure(image=tk_right_eye)
             self.right_eye_label.image = tk_right_eye
-
-        # Schedule the next frame update
-        self.video_label.after(10, self.update_frame)
