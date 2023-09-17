@@ -1,7 +1,6 @@
 import torch
 import math
 from torch import nn, Tensor
-import model.network
 
 from torch.nn import functional as F
 

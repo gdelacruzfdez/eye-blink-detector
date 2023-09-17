@@ -7,7 +7,7 @@ class FrameProcessor:
         self.box_color: tuple[int, int, int] = (0, 255, 0)  # Green color for the bounding boxes
         self.box_thickness: int = 2
 
-    def visualize_eye_boxes(self, frame: np.ndarray, eye_boxes: list[dict[str, dict[str, np.ndarray]]], is_blinking: bool = False) -> Image.Image:
+    def visualize_eye_boxes(self, frame: np.ndarray, eye_boxes: list[dict[str, dict[str, np.ndarray]]]) -> Image.Image:
         """
         Visualize the eye boxes on the given frame.
 
@@ -20,17 +20,12 @@ class FrameProcessor:
         """
         frame_with_boxes = frame.copy()
 
-        if is_blinking:
-            box_color = (0, 0, 255)  # RGB for Red
-        else:
-            box_color = self.box_color  # Assuming self.box_color is a predefined color
-
         for eye_box_pair in eye_boxes:
             left_eye_box = eye_box_pair['left_eye']['box']
             right_eye_box = eye_box_pair['right_eye']['box']
 
-            cv2.drawContours(frame_with_boxes, [left_eye_box], 0, box_color, self.box_thickness)
-            cv2.drawContours(frame_with_boxes, [right_eye_box], 0, box_color, self.box_thickness)
+            cv2.drawContours(frame_with_boxes, [left_eye_box], 0, self.box_color, self.box_thickness)
+            cv2.drawContours(frame_with_boxes, [right_eye_box], 0, self.box_color, self.box_thickness)
 
         return Image.fromarray(cv2.cvtColor(frame_with_boxes, cv2.COLOR_BGR2RGB))
 

@@ -1,33 +1,32 @@
 import torch
 import torchvision.models as models
-from einops import rearrange
 from torch import nn
-
 from model.timeseries_transformer import TimeSeriesTransformer
+import os
+import lightning.pytorch as pl
 
 
-class CNNTransformer(nn.Module):
-    def __init__(self, config):
+
+class CNNTransformer(pl.LightningModule):
+    def __init__(self,
+                 num_frames=32,
+                 batch_size=5,
+                 dim=128,
+                 encoder_layers=4,
+                 heads=8,
+                 encoder_layer_type="local",
+                 task="blink_detection"
+                 ):
         super().__init__()
-        self.image_size = config["image_size"]
-        self.task = config.get("task")
+
+        self.num_frames = num_frames
+        self.task = task
         self.num_classes = 3 if self.task == "blink_completeness_detection" else 2
-        self.num_frames = config["num_frames"]
-        self.optimizer_type = config.get('optimizer_type')
-        self.dim = config["dim"]
-        self.batch_size = config["batch_size"]
-        self.encoder_layers = config["encoder_layers"]
-        self.heads = config["heads"]
-        self.in_channels = config["in_channels"]
-        self.dropout = config["dropout"]
-        self.emb_dropout = config["emb_dropout"]
-        self.transformer_lr = config["transformer_lr"]
-        self.cnn_lr = config["cnn_lr"]
-        self.encoder_layer_type = config["encoder_layer_type"]
-        self.use_lstm = config.get("use_lstm")
-        self.use_siamese = config.get("use_siamese")
-        self.use_vit = config.get("use_vit")
-        self.use_weights = config.get("use_weights")
+        self.dim = dim
+        self.batch_size = batch_size
+        self.encoder_layers = encoder_layers
+        self.heads = heads
+        self.encoder_layer_type = encoder_layer_type
 
         self.softmax = nn.Softmax(dim=1)
 
@@ -35,15 +34,15 @@ class CNNTransformer(nn.Module):
         num_ftrs = self.cnn_model.classifier[1].in_features
         self.cnn_model.classifier[1] = nn.Linear(num_ftrs, self.dim)
 
-        self.sequence_model = TimeSeriesTransformer(self.dim, self.num_frames, True,
+        self.sequence_model = TimeSeriesTransformer(self.dim, num_frames, True,
                                                     dim_val=self.dim, n_heads=self.heads,
                                                     n_encoder_layers=self.encoder_layers,
-                                                    window_size=self.num_frames,
+                                                    window_size=num_frames,
                                                     encoder_layer_type=self.encoder_layer_type,
                                                     dim_feedforward_encoder=self.dim * 4)
 
         self.mlp_head = nn.Sequential(
-            nn.MaxPool2d(kernel_size=(self.num_frames + 1, 1)),
+            nn.MaxPool2d(kernel_size=(num_frames + 1, 1)),
             nn.Flatten(start_dim=1),  # flatten the tensor
             nn.Linear(self.dim, self.num_classes)
         )
@@ -51,7 +50,6 @@ class CNNTransformer(nn.Module):
         self.cnn_cache = None
 
     def forward(self, x):
-        print('X size', x.size())
         if self.cnn_cache is None:
             # This means it's the first iteration
 
@@ -88,23 +86,19 @@ class CNNTransformer(nn.Module):
         return output
 
 
-config_transformer = {
-    'image_size': 64, 'num_frames': 32, 'batch_size': 5, 'dim': 128,
-    'encoder_layers': 4, 'heads': 8, 'cnn_lr': 0,
-    'transformer_lr': 0, 'lr': 0, 'data_augmentation': True, 'train_mode': 'train',
-    "num_classes": 2, "in_channels": 3, "dropout": 0, "emb_dropout": 0,
-    "version": "eye_trans",
-    "encoder_layer_type": "local",
-    'optimizer_type': 'radam',
-    "use_lstm": False,
-    "use_siamese": False,
-    "task": "blink_detection"
-}
+def get_blink_predictor(batch_size: int) -> CNNTransformer:
+    model = CNNTransformer(batch_size=batch_size)
 
+    # Get the directory containing the current script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
 
-def get_blink_predictor() -> CNNTransformer:
-    model = CNNTransformer(config_transformer)
-    checkpoint = torch.load(r"C:\Users\Gonzalo\PycharmProjects\eye-blink-detector\model.ckpt",
+    # Get the parent directory of the script directory
+    parent_dir = os.path.dirname(script_dir)
+
+    # Construct the full path to the model checkpoint
+    checkpoint_path = os.path.join(parent_dir, "model.ckpt")
+
+    checkpoint = torch.load(checkpoint_path,
                             map_location=torch.device('cpu'))
     model.load_state_dict(checkpoint["state_dict"])
     model.eval()

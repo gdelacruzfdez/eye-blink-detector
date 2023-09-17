@@ -2,8 +2,9 @@ import dlib
 import math
 import numpy as np
 import cv2
+import os
 
-SHAPE_PREDICTOR_PATH: str = "shape_predictor_68_face_landmarks.dat"
+SHAPE_PREDICTOR_PATH: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), "shape_predictor_68_face_landmarks.dat")
 BOX_COLOR: tuple[int, int, int] = (0, 255, 0)  # Green color for the bounding boxes
 BOX_THICKNESS: int = 2
 
