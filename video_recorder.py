@@ -37,6 +37,7 @@ class VideoRecorder:
         """
         self.recording = True
         self.start_recording_time = time.time()
+        print('fps ' + str(self.webcam_capture.get_fps()))
         self.video_writer = cv2.VideoWriter(
             'output.mp4',
             cv2.VideoWriter_fourcc(*'mp4v'),

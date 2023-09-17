@@ -3,13 +3,20 @@ import time
 import threading
 from queue import Queue
 import tkinter as tk
+
+import torch
 from PIL import Image, ImageTk
 from eye_detector import EyeDetector
 from frame_processor import FrameProcessor
+from model.cnn_transformer import get_blink_predictor
 from video_recorder import VideoRecorder
 from webcam_capture import WebcamCapture
 from screeninfo import get_monitors
+from torchvision import transforms
+from typing import List, Union
+import numpy as np
 import time
+
 
 class EyeDetectionApp:
     def __init__(self):
@@ -20,6 +27,8 @@ class EyeDetectionApp:
         self.selected_camera.set(self.cameras[0])  # default camera is '0'
         self.webcam_capture = WebcamCapture(int(self.selected_camera.get()))
         self.frame_queue = Queue()
+        self.left_eye_queue = Queue()
+        self.right_eye_queue = Queue()
 
         self.eye_detector = EyeDetector()
         self.video_recorder = VideoRecorder(self.webcam_capture)
@@ -31,7 +40,17 @@ class EyeDetectionApp:
         self.recording_indicator = tk.Label(self.root, text="Not Recording", fg="red", font=("Arial", 12, "bold"))
         self.recording_time_label = tk.Label(self.root, text="00:00:00", font=("Arial", 12, "bold"))
         self.stop_recording_flag = threading.Event()
-        
+
+        self.blink_predictor = get_blink_predictor()
+        self.blink_count = 0
+        self.is_blinking = False
+
+        self.transform = transforms.Compose([
+            transforms.Resize((64, 64), interpolation=Image.BICUBIC),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])
+        ])
 
     def setup_ui(self):
         """
@@ -55,7 +74,6 @@ class EyeDetectionApp:
         # Set the window size and make it non-resizable
         self.root.geometry(f"{self.window_width}x{self.window_height}")
         self.root.resizable(False, False)
-        
 
         # Video label
         self.video_label.grid(row=0, column=0, columnspan=2, padx=10, pady=10)
@@ -84,12 +102,16 @@ class EyeDetectionApp:
         self.recording_time_label.grid(row=5, column=0, columnspan=2, pady=5)
 
         # Webcam selection label
-        camera_selection_label = tk.Label(self.root, text="Select Camera:", font=("Arial", 12, "bold"))
-        camera_selection_label.grid(row=6, column=0, pady=5)
+        #camera_selection_label = tk.Label(self.root, text="Select Camera:", font=("Arial", 12, "bold"))
+        #camera_selection_label.grid(row=6, column=0, pady=5)
 
         # Webcam selector
-        self.camera_selector = tk.OptionMenu(self.root, self.selected_camera, *self.cameras, command=self.switch_camera)
-        self.camera_selector.grid(row=6, column=1, pady=5)
+        #self.camera_selector = tk.OptionMenu(self.root, self.selected_camera, *self.cameras, command=self.switch_camera)
+        #self.camera_selector.grid(row=6, column=1, pady=5)
+
+        # Blink Counter label
+        self.blink_label = tk.Label(self.root, text="Blink Count: 0", font=("Arial", 12, "bold"))
+        self.blink_label.grid(row=6, column=0, columnspan=2, pady=5)
 
         self.root.protocol("WM_DELETE_WINDOW", self.stop)
 
@@ -100,6 +122,10 @@ class EyeDetectionApp:
         self.setup_ui()
         self.recording_thread = threading.Thread(target=self.record_frames)
         self.recording_thread.start()
+        self.left_eye_predictor_thread = threading.Thread(target=self.predict_blinks, args=(self.left_eye_queue,))
+        self.left_eye_predictor_thread.start()
+        # self.right_eye_predictor_thread = threading.Thread(target=self.predict_blinks, args=(self.right_eye_queue,))
+        # self.right_eye_predictor_thread.start()
         self.refresh_display()
         self.root.mainloop()
 
@@ -107,11 +133,13 @@ class EyeDetectionApp:
         """
         Stop the eye detection and recording application.
         """
-        self.video_recorder.stop_recording() # Stop the recording explicitly
+        self.video_recorder.stop_recording()  # Stop the recording explicitly
         self.stop_recording_flag.set()  # Signal the recording thread to stop
         self.recording_thread.join()  # Wait for the recording thread to finish
+        self.left_eye_predictor_thread.join()
+        # self.right_eye_predictor_thread.join()
         self.webcam_capture.release()
-        
+
         # Close the Tkinter main window gracefully
         self.root.quit()
         self.root.destroy()
@@ -144,12 +172,58 @@ class EyeDetectionApp:
                 frame_count = 0
                 prev_time = current_time
 
-
             if frame is not None:
                 if self.video_recorder.recording:
                     self.video_recorder.process_frame(frame)
                 self.frame_queue.put(frame)
             time.sleep(0.01)  # Introduce a delay of 10 milliseconds
+
+    def predict_blinks(self, eye_queue):
+        buffer = []
+        last_blink_state = False
+        batch_size = 5
+        while True:
+            start_time = time.time()
+            # Retrieve a frame from the queue
+            frame = eye_queue.get()
+
+            # Append the frame to the buffer
+            buffer.append(self.transform(frame))
+
+            print('Number of elements in the queue: ' + str(eye_queue.qsize()))
+
+            # When the buffer has at least 33 frames
+            if len(buffer) >= 32 + batch_size:
+                blink_predictions = self.process_batch(buffer)
+
+                # Iterate over blink predictions
+                for is_blinking in blink_predictions:
+                    self.is_blinking = is_blinking
+                    # Handle consecutive blink predictions
+                    if is_blinking and not last_blink_state:
+                        self.blink_count += 1
+                        # Update UI label with the new blink count
+                        self.blink_label.configure(text=f"Blink Count: {self.blink_count}")
+
+                    last_blink_state = is_blinking
+
+                # Remove frames from the beginning based on the batch size to slide the window
+                buffer = buffer[batch_size:]
+
+            eye_queue.task_done()
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            print(f"Iteration time: {elapsed_time:.4f} seconds")
+
+    def process_batch(self, batch):
+        transformed_images = torch.stack(batch)
+        with torch.no_grad():
+            predictions = self.blink_predictor(transformed_images)
+            _, predicted_classes = torch.max(predictions.data, 1)
+
+            blink_predictions = [item == 1 for item in predicted_classes.tolist()]
+
+        return blink_predictions
 
     def switch_camera(self, selection):
         """
@@ -189,18 +263,23 @@ class EyeDetectionApp:
             frame_height = self.webcam_capture.get_frame_height()
 
             aspect_ratio = frame_width / frame_height
-            
+
             eye_boxes = self.eye_detector.calculate_eye_boxes(frame)
-            frame_with_boxes = self.frame_processor.visualize_eye_boxes(frame, eye_boxes)
+            frame_with_boxes = self.frame_processor.visualize_eye_boxes(frame, eye_boxes, self.is_blinking)
             left_eye_images, right_eye_images = self.frame_processor.extract_eye_images(frame, eye_boxes)
-            left_eye_image = left_eye_images[0] if len(left_eye_images) > 0 else Image.new("RGB", (1, 1), (0, 0, 0))  # Placeholder black image
-            right_eye_image = right_eye_images[0] if len(right_eye_images) > 0 else Image.new("RGB", (1, 1), (0, 0, 0))  # Placeholder black image
+            left_eye_image = left_eye_images[0] if len(left_eye_images) > 0 else Image.new("RGB", (1, 1), (
+            0, 0, 0))  # Placeholder black image
+            right_eye_image = right_eye_images[0] if len(right_eye_images) > 0 else Image.new("RGB", (1, 1), (
+            0, 0, 0))  # Placeholder black image
+
+            self.left_eye_queue.put(left_eye_image)
+            self.right_eye_queue.put(right_eye_image)
 
             frame_new_width = self.window_width - 40
             frame_new_height = int(self.window_width / aspect_ratio)
 
             # Resize the frame to full window width and adjusted height
-            frame_with_boxes = frame_with_boxes.resize((frame_new_width , frame_new_height), Image.BILINEAR)
+            frame_with_boxes = frame_with_boxes.resize((frame_new_width, frame_new_height), Image.BILINEAR)
 
             # Resize the eye images to half window width and adjusted height
             left_eye_image = left_eye_image.resize((frame_new_width // 2, frame_new_height // 3), Image.BILINEAR)
