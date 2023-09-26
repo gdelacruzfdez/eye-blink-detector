@@ -14,7 +14,7 @@ DEFAULT_CAMERA = 0
 
 
 class EyeDetectionController:
-    def __init__(self):
+    def  __init__(self):
         self.cameras = WebcamCapture.get_available_cameras(5)
         self.webcam_capture = WebcamCapture(int(self.cameras[DEFAULT_CAMERA]))
         self.frame_queue = Queue()
@@ -49,6 +49,7 @@ class EyeDetectionController:
         Toggle the recording state.
         """
         if not self.video_recorder.recording:
+            self.blink_predictor.reset()
             self.video_recorder.start_recording()
         else:
             self.video_recorder.stop_recording()
@@ -110,8 +111,9 @@ class EyeDetectionController:
                 left_eye_pred=None,  # We don't have predictions yet.
                 right_eye_pred=None
             )
+            if self.video_recorder.recording:
+                self.blink_predictor.add_frame_to_processing_queue(frame_info)
 
-            self.blink_predictor.add_frame_to_processing_queue(frame_info)
             return frame_info
         return None
 

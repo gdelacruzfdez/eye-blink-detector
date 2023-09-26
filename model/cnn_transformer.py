@@ -3,11 +3,10 @@ import torchvision.models as models
 from torch import nn
 from model.timeseries_transformer import TimeSeriesTransformer
 import os
-import lightning.pytorch as pl
 
 
 
-class CNNTransformer(pl.LightningModule):
+class CNNTransformer(nn.Module):
     def __init__(self,
                  num_frames=32,
                  batch_size=5,
@@ -30,7 +29,7 @@ class CNNTransformer(pl.LightningModule):
 
         self.softmax = nn.Softmax(dim=1)
 
-        self.cnn_model = models.efficientnet_b2(pretrained=True)
+        self.cnn_model = models.efficientnet_b2()
         num_ftrs = self.cnn_model.classifier[1].in_features
         self.cnn_model.classifier[1] = nn.Linear(num_ftrs, self.dim)
 
@@ -96,10 +95,10 @@ def get_blink_predictor(batch_size: int) -> CNNTransformer:
     parent_dir = os.path.dirname(script_dir)
 
     # Construct the full path to the model checkpoint
-    checkpoint_path = os.path.join(parent_dir, "model.ckpt")
+    checkpoint_path = os.path.join(parent_dir, "model.pt")
 
     checkpoint = torch.load(checkpoint_path,
                             map_location=torch.device('cpu'))
-    model.load_state_dict(checkpoint["state_dict"])
+    model.load_state_dict(checkpoint)
     model.eval()
     return model

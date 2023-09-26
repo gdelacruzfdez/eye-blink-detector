@@ -23,7 +23,8 @@ class BlinkPredictor:
         self.batch_size = batch_size
         # Initialize image processor and blink prediction model
         self.image_processor = ImageProcessor()
-        self.blink_model = BlinkModel(batch_size)
+        self.blink_model_left = BlinkModel(batch_size)
+        self.blink_model_right = BlinkModel(batch_size)
 
         # Separate statistics for left and right eyes
         self.left_eye_stats = BlinkStatistics()
@@ -36,10 +37,10 @@ class BlinkPredictor:
         self.eye_predictor_thread = threading.Thread(target=self.predict_blinks)
 
         # Buffers for left and right eyes
-        self.left_eye_buffer = BufferHandler(self.image_processor, self.blink_model, self.left_eye_stats,
-                                             self.batch_size)
-        self.right_eye_buffer = BufferHandler(self.image_processor, self.blink_model, self.right_eye_stats,
-                                              self.batch_size)
+        self.left_eye_buffer = BufferHandler(self.image_processor, self.blink_model_left, self.left_eye_stats,
+                                             self.batch_size, 'left')
+        self.right_eye_buffer = BufferHandler(self.image_processor, self.blink_model_right, self.right_eye_stats,
+                                              self.batch_size, 'right')
 
         # List to store processed frames
         self.processed_frames: list[FrameInfo] = []
@@ -71,12 +72,37 @@ class BlinkPredictor:
 
             # Add the processed frame to the list
             self.processed_frames.append(frame_info)
-
             # Mark the task as done
             self.processing_queue.task_done()
 
             end_time = time.time()
             elapsed_time = end_time - start_time
+
+    def reset(self) -> None:
+        """Resets the blink predictor by clearing statistics, the processing queue, and recreating the prediction models."""
+
+        # 1. Reset blink statistics
+        self.left_eye_stats = BlinkStatistics()
+        self.right_eye_stats = BlinkStatistics()
+
+        # 2. Clear the processing queue
+        while not self.processing_queue.empty():
+            self.processing_queue.get()
+            self.processing_queue.task_done()
+
+        # 3. Recreate the blink prediction models
+        self.blink_model_left = BlinkModel(self.batch_size)
+        self.blink_model_right = BlinkModel(self.batch_size)
+
+        # 4. Clear the processed frames list
+        self.processed_frames.clear()
+
+        # 5. Reset buffers
+        self.left_eye_buffer = BufferHandler(self.image_processor, self.blink_model_left, self.left_eye_stats,
+                                             self.batch_size, 'left')
+        self.right_eye_buffer = BufferHandler(self.image_processor, self.blink_model_right, self.right_eye_stats,
+                                              self.batch_size, 'right')
+
 
 
 class BufferHandler:
@@ -87,12 +113,13 @@ class BufferHandler:
     """
 
     def __init__(self, image_processor: 'ImageProcessor', blink_model: 'BlinkModel', blink_stats: 'BlinkStatistics',
-                 batch_size: int):
+                 batch_size: int, eye: str):
         # Initialize image processor, blink model, and blink statistics
         self.image_processor = image_processor
         self.blink_model = blink_model
         self.blink_stats = blink_stats
         self.batch_size = batch_size
+        self.eye = eye
 
         # List buffer to store processed images and frame references
         self.buffer: list[tuple[torch.Tensor, FrameInfo]] = []
@@ -114,7 +141,10 @@ class BufferHandler:
 
         for i, is_blinking in enumerate(blink_predictions):
             self.blink_stats.update_blink_stats(is_blinking)
-            frame_info_refs[i].left_eye_pred = is_blinking
+            if self.eye == 'left':
+                frame_info_refs[i].left_eye_pred = is_blinking
+            else:
+                frame_info_refs[i].right_eye_pred = is_blinking
 
         # Reset the buffer by removing batch_size elements
         self.buffer = self.buffer[self.batch_size:]
