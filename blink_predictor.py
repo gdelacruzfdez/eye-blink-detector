@@ -145,7 +145,8 @@ class BlinkPredictor:
         csv_file_path = os.path.join(self.session_save_dir, 'blink_data.csv')
         with open(csv_file_path, 'w', newline='') as csvfile:
             fieldnames = ['Frame Number', 'Left Eye Path', 'Right Eye Path',
-                          'Left Eye Blink Prediction', 'Right Eye Blink Prediction', 'Frame Blink Prediction']
+                          'Left Eye Blink Prediction', 'Left Eye Blink Probability', 'Right Eye Blink Prediction',
+                          'Right Eye Blink Probability', 'Average Blink Probability', 'Frame Blink Prediction']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=';')
 
             writer.writeheader()  # write the headers
@@ -153,13 +154,19 @@ class BlinkPredictor:
                 left_eye_path = os.path.join('left_eyes', f"left_eye_{frame_info.frame_num}.jpg")
                 right_eye_path = os.path.join('right_eyes', f"right_eye_{frame_info.frame_num}.jpg")
 
+                avg_probability = (frame_info.left_eye_prob + frame_info.right_eye_prob) / 2
+                frame_blink_prediction = 1 if avg_probability > 0.5 else 0
+
                 writer.writerow({
                     'Frame Number': frame_info.frame_num,
                     'Left Eye Path': left_eye_path,
                     'Right Eye Path': right_eye_path,
                     'Left Eye Blink Prediction': frame_info.left_eye_pred,
+                    'Left Eye Blink Probability': round(frame_info.left_eye_prob, 4),
                     'Right Eye Blink Prediction': frame_info.right_eye_pred,
-                    'Frame Blink Prediction': frame_info.right_eye_pred or frame_info.left_eye_pred
+                    'Right Eye Blink Probability': round(frame_info.right_eye_prob,4),
+                    'Average Blink Probability': round(avg_probability, 4),
+                    'Frame Blink Prediction': frame_blink_prediction
                 })
 
     def generate_excel(self, dataframe: pd.DataFrame, filename: str = "results.xlsx"):
@@ -172,11 +179,9 @@ class BlinkPredictor:
         self.left_eye_buffer.process_remaining()
         self.right_eye_buffer.process_remaining()
 
-
         """Processes any final tasks at the end of a recording session."""
         if self.export_recording_data and self.session_save_dir and self.processed_frames:  # Only if we have a valid session directory and frames
             self.generate_csv_from_processed_frames()
-
 
 
 class BufferHandler:
@@ -214,13 +219,15 @@ class BufferHandler:
         stacked_frames = torch.stack(stacked_frames)
         blink_predictions = self.blink_model.predict(stacked_frames)
 
-        for i, is_blinking in enumerate(blink_predictions):
+        for i, (is_blinking, probability) in enumerate(blink_predictions):
             self.blink_stats.update_blink_stats(is_blinking)
             if frame_info_refs[WINDOW_SIZE // 2 + i] is not None:
                 if self.eye == 'left':
-                    frame_info_refs[WINDOW_SIZE//2 + i].left_eye_pred = is_blinking
+                    frame_info_refs[WINDOW_SIZE // 2 + i].left_eye_pred = is_blinking
+                    frame_info_refs[WINDOW_SIZE // 2 + i].left_eye_prob = probability
                 else:
-                    frame_info_refs[WINDOW_SIZE//2 + i].right_eye_pred = is_blinking
+                    frame_info_refs[WINDOW_SIZE // 2 + i].right_eye_pred = is_blinking
+                    frame_info_refs[WINDOW_SIZE // 2 + i].right_eye_prob = probability
 
         # Reset the buffer by removing batch_size elements
         self.buffer = self.buffer[self.batch_size:]
@@ -273,12 +280,12 @@ class BlinkModel:
     def __init__(self, batch_size: int):
         self.model = get_blink_predictor(batch_size)
 
-    def predict(self, batch: torch.Tensor) -> list[bool]:
+    def predict(self, batch: torch.Tensor) -> list[tuple[int, float]]:
         with torch.no_grad():
             predictions = self.model(batch)
             _, predicted_classes = torch.max(predictions.data, 1)
 
-        return [item == 1 for item in predicted_classes.tolist()]
+        return [(item, predictions[i][1].item()) for i, item in enumerate(predicted_classes.tolist())]
 
 
 class BlinkStatistics:
