@@ -20,9 +20,9 @@ class EyeDetectionController:
         self.webcam_capture = WebcamCapture(int(self.cameras[DEFAULT_CAMERA]))
         self.frame_queue = Queue()
         self.eye_detector = EyeDetector()
-        self.video_recorder = VideoRecorder(self.webcam_capture)
         self.frame_processor = FrameProcessor()
         self.blink_predictor = BlinkPredictor()
+        self.video_recorder = VideoRecorder(self.webcam_capture, self.blink_predictor)
         self.frame_count = 0
 
         self.recording_thread = threading.Thread(target=self.record_frames)

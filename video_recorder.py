@@ -1,17 +1,21 @@
 import cv2
 import numpy as np
 from typing import Callable, Optional
+
+from blink_predictor import BlinkPredictor
 from webcam_capture import WebcamCapture
 import time
+import os
 
 class VideoRecorder:
-    def __init__(self, webcam_capture: WebcamCapture):
+    def __init__(self, webcam_capture: WebcamCapture, blink_predictor: BlinkPredictor):
         self.webcam_capture = webcam_capture
         self.recording = False
         self.video_writer = None
         self.on_recording_start: Optional[Callable[[], None]] = None
         self.on_recording_end: Optional[Callable[[], None]] = None
         self.start_recording_time = None
+        self.blink_predictor = blink_predictor
 
     def set_recording_start_callback(self, callback: Callable[[], None]):
         """
@@ -38,12 +42,14 @@ class VideoRecorder:
         self.recording = True
         self.start_recording_time = time.time()
         print('fps ' + str(self.webcam_capture.get_fps()))
-        self.video_writer = cv2.VideoWriter(
-            'output.mp4',
-            cv2.VideoWriter_fourcc(*'mp4v'),
-            self.webcam_capture.get_fps(),
-            (self.webcam_capture.get_frame_width(), self.webcam_capture.get_frame_height())
-        )
+        if self.blink_predictor.export_recording_data:
+            video_path = os.path.join(self.blink_predictor.session_save_dir, 'video.mp4')  # Save video in session directory
+            self.video_writer = cv2.VideoWriter(
+                video_path,
+                cv2.VideoWriter_fourcc(*'mp4v'),
+                self.webcam_capture.get_fps(),
+                (self.webcam_capture.get_frame_width(), self.webcam_capture.get_frame_height())
+            )
         if self.on_recording_start:
             self.on_recording_start()
 
@@ -66,6 +72,6 @@ class VideoRecorder:
         Args:
             frame (numpy.ndarray): The frame to be processed.
         """
-        if self.recording:
+        if self.recording and self.blink_predictor.export_recording_data:
             if self.video_writer is not None:
                 self.video_writer.write(frame)
