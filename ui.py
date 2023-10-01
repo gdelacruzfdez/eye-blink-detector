@@ -22,6 +22,7 @@ class EyeDetectionUI:
         self.setup_controls()
         self.setup_dropdown()
         self.setup_blink_counter()
+        self.setup_menu()
         self.root.protocol("WM_DELETE_WINDOW", self.stop)
 
     def setup_window_properties(self):
@@ -80,6 +81,24 @@ class EyeDetectionUI:
 
         self.right_blinks_label = tk.Label(self.root, text="Right Eye Blink Count: 0", font=FONT_BOLD)
         self.right_blinks_label.grid(row=7, column=1, columnspan=1, pady=5)
+
+    def setup_menu(self):
+        self.export_recording_data_var = tk.BooleanVar(value=True)
+
+        menubar = tk.Menu(self.root)
+
+        # Create the options menu
+        options_menu = tk.Menu(menubar, tearoff=0)
+
+        # Associate the checkbox state change with handle_export_data_toggle
+        options_menu.add_checkbutton(label="Export recording data", variable=self.export_recording_data_var,
+                                     onvalue=True, offvalue=False, command=self.handle_export_data_toggle)
+        menubar.add_cascade(label="Options", menu=options_menu)
+
+        self.root.config(menu=menubar)
+
+    def handle_export_data_toggle(self):
+        self.controller.set_export_recording_data(self.export_recording_data_var.get())
 
     def toggle_recording(self):
         """

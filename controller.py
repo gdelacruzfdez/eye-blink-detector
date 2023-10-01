@@ -83,6 +83,9 @@ class EyeDetectionController:
         self.webcam_capture.release()
         self.webcam_capture = WebcamCapture(int(selection))
 
+    def set_export_recording_data(self, value: bool):
+        self.blink_predictor.set_export_recording_data(value)
+
     def get_latest_frame_info(self):
         """
         Fetch the latest frame, process it, and return a FrameInfo object with all relevant details.

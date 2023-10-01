@@ -51,6 +51,9 @@ class BlinkPredictor:
 
         self.stop_signal = threading.Event()
 
+        # Initialize export flag as True
+        self.export_recording_data = True
+
         # Create base directory if it doesn't exist
         if not os.path.exists(base_save_dir):
             os.makedirs(base_save_dir)
@@ -65,6 +68,9 @@ class BlinkPredictor:
         """Stop the blink prediction thread."""
         self.stop_signal.set()
         self.eye_predictor_thread.join()
+
+    def set_export_recording_data(self, value: bool):
+        self.export_recording_data = value
 
     def initialize_recording_directory(self):
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -87,8 +93,9 @@ class BlinkPredictor:
             self.left_eye_buffer.handle(frame_info.left_eye_img, frame_info)
             self.right_eye_buffer.handle(frame_info.right_eye_img, frame_info)
 
-            # Save frame images
-            self.save_frame_data(frame_info)
+            if self.export_recording_data:
+                # Save frame images
+                self.save_frame_data(frame_info)
 
             # Add the processed frame to the list
             self.processed_frames.append(frame_info)
@@ -100,7 +107,8 @@ class BlinkPredictor:
 
     def start_new_recording_session(self) -> None:
         """Resets the blink predictor by clearing statistics, the processing queue, and recreating the prediction models."""
-        self.initialize_recording_directory()
+        if self.export_recording_data:
+            self.initialize_recording_directory()
         # 1. Reset blink statistics
         self.left_eye_stats = BlinkStatistics()
         self.right_eye_stats = BlinkStatistics()
@@ -172,7 +180,7 @@ class BlinkPredictor:
 
 
         """Processes any final tasks at the end of a recording session."""
-        if self.session_save_dir and self.processed_frames:  # Only if we have a valid session directory and frames
+        if self.export_recording_data and self.session_save_dir and self.processed_frames:  # Only if we have a valid session directory and frames
             self.generate_csv_from_processed_frames()
 
 
@@ -211,9 +219,7 @@ class BufferHandler:
         stacked_frames, frame_info_refs = zip(*self.buffer)
         stacked_frames = torch.stack(stacked_frames)
         blink_predictions = self.blink_model.predict(stacked_frames)
-        if self.eye == 'left':
-            print(frame_info_refs)
-        print(len(blink_predictions), stacked_frames.size(), len(frame_info_refs), WINDOW_SIZE/2)
+
         for i, is_blinking in enumerate(blink_predictions):
             self.blink_stats.update_blink_stats(is_blinking)
             if frame_info_refs[WINDOW_SIZE // 2 + i] is not None:
