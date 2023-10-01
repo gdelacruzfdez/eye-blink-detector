@@ -9,6 +9,7 @@ from video_recorder import VideoRecorder
 from webcam_capture import WebcamCapture
 from blink_predictor import BlinkPredictor
 from PIL import Image
+import cv2
 
 DEFAULT_CAMERA = 0
 
@@ -49,10 +50,11 @@ class EyeDetectionController:
         Toggle the recording state.
         """
         if not self.video_recorder.recording:
-            self.blink_predictor.reset()
+            self.blink_predictor.start_new_recording_session()
             self.video_recorder.start_recording()
         else:
             self.video_recorder.stop_recording()
+            self.blink_predictor.end_recording_session()
 
     def record_frames(self):
         frame_count = 0
@@ -103,7 +105,7 @@ class EyeDetectionController:
 
             frame_info = FrameInfo(
                 frame_num=self.frame_count,
-                frame_img=frame,
+                frame_img=Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)),
                 frame_with_boxes=frame_with_boxes,
                 eye_boxes=eye_boxes,
                 left_eye_img=left_eye_image,

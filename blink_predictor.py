@@ -7,6 +7,10 @@ from model.cnn_transformer import get_blink_predictor
 from PIL import Image
 from queue import Queue
 import time
+import os
+from datetime import datetime
+import pandas as pd
+import csv
 
 # Constant defining the size of the window for processing
 WINDOW_SIZE = 32
@@ -19,7 +23,7 @@ class BlinkPredictor:
     to ensure that frames are processed without blocking the main thread.
     """
 
-    def __init__(self, batch_size: int = 5):
+    def __init__(self, batch_size: int = 5, base_save_dir: str = 'recordings'):
         self.batch_size = batch_size
         # Initialize image processor and blink prediction model
         self.image_processor = ImageProcessor()
@@ -47,6 +51,12 @@ class BlinkPredictor:
 
         self.stop_signal = threading.Event()
 
+        # Create base directory if it doesn't exist
+        if not os.path.exists(base_save_dir):
+            os.makedirs(base_save_dir)
+        self.base_save_dir = base_save_dir
+        self.session_save_dir = None  # Will be set when starting a new recording
+
     def start(self) -> None:
         """Start the blink prediction thread."""
         self.eye_predictor_thread.start()
@@ -55,6 +65,13 @@ class BlinkPredictor:
         """Stop the blink prediction thread."""
         self.stop_signal.set()
         self.eye_predictor_thread.join()
+
+    def initialize_recording_directory(self):
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        self.session_save_dir = os.path.join(self.base_save_dir, timestamp)
+        os.makedirs(os.path.join(self.session_save_dir, 'frames'))
+        os.makedirs(os.path.join(self.session_save_dir, 'left_eyes'))
+        os.makedirs(os.path.join(self.session_save_dir, 'right_eyes'))
 
     def add_frame_to_processing_queue(self, frame_info: FrameInfo) -> None:
         """Add a frame to the processing queue."""
@@ -70,6 +87,9 @@ class BlinkPredictor:
             self.left_eye_buffer.handle(frame_info.left_eye_img, frame_info)
             self.right_eye_buffer.handle(frame_info.right_eye_img, frame_info)
 
+            # Save frame images
+            self.save_frame_data(frame_info)
+
             # Add the processed frame to the list
             self.processed_frames.append(frame_info)
             # Mark the task as done
@@ -78,9 +98,9 @@ class BlinkPredictor:
             end_time = time.time()
             elapsed_time = end_time - start_time
 
-    def reset(self) -> None:
+    def start_new_recording_session(self) -> None:
         """Resets the blink predictor by clearing statistics, the processing queue, and recreating the prediction models."""
-
+        self.initialize_recording_directory()
         # 1. Reset blink statistics
         self.left_eye_stats = BlinkStatistics()
         self.right_eye_stats = BlinkStatistics()
@@ -103,6 +123,58 @@ class BlinkPredictor:
         self.right_eye_buffer = BufferHandler(self.image_processor, self.blink_model_right, self.right_eye_stats,
                                               self.batch_size, 'right')
 
+    def save_frame_data(self, frame_info: FrameInfo):
+        # Save frame images
+        frame_path = os.path.join(self.session_save_dir, 'frames', f"frame_{frame_info.frame_num}.jpg")
+        left_eye_path = os.path.join(self.session_save_dir, 'left_eyes', f"left_eye_{frame_info.frame_num}.jpg")
+        right_eye_path = os.path.join(self.session_save_dir, 'right_eyes', f"right_eye_{frame_info.frame_num}.jpg")
+
+        frame_info.frame_img.save(frame_path)
+        frame_info.left_eye_img.save(left_eye_path)
+        frame_info.right_eye_img.save(right_eye_path)
+
+    import csv
+
+    # ... (rest of the code in BlinkPredictor)
+
+    def generate_csv_from_processed_frames(self):
+        csv_file_path = os.path.join(self.session_save_dir, 'blink_data.csv')
+        with open(csv_file_path, 'w', newline='') as csvfile:
+            fieldnames = ['Frame Number', 'Frame Path', 'Left Eye Path', 'Right Eye Path',
+                          'Left Eye Blink Prediction', 'Right Eye Blink Prediction', 'Frame Blink Prediction']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=';')
+
+            writer.writeheader()  # write the headers
+            for frame_info in self.processed_frames:
+                frame_path = os.path.join('frames', f"frame_{frame_info.frame_num}.jpg")
+                left_eye_path = os.path.join('left_eyes', f"left_eye_{frame_info.frame_num}.jpg")
+                right_eye_path = os.path.join('right_eyes', f"right_eye_{frame_info.frame_num}.jpg")
+
+                writer.writerow({
+                    'Frame Number': frame_info.frame_num,
+                    'Frame Path': frame_path,
+                    'Left Eye Path': left_eye_path,
+                    'Right Eye Path': right_eye_path,
+                    'Left Eye Blink Prediction': frame_info.left_eye_pred,
+                    'Right Eye Blink Prediction': frame_info.right_eye_pred,
+                    'Frame Blink Prediction': frame_info.right_eye_pred or frame_info.left_eye_pred
+                })
+
+    def generate_excel(self, dataframe: pd.DataFrame, filename: str = "results.xlsx"):
+        dataframe.to_excel(os.path.join(self.session_save_dir, filename), index=False)
+
+    def end_recording_session(self) -> None:
+        # Wait until the queue is completely processed
+        self.processing_queue.join()
+        # Process the remaining frames in the buffers
+        self.left_eye_buffer.process_remaining()
+        self.right_eye_buffer.process_remaining()
+
+
+        """Processes any final tasks at the end of a recording session."""
+        if self.session_save_dir and self.processed_frames:  # Only if we have a valid session directory and frames
+            self.generate_csv_from_processed_frames()
+
 
 
 class BufferHandler:
@@ -123,6 +195,7 @@ class BufferHandler:
 
         # List buffer to store processed images and frame references
         self.buffer: list[tuple[torch.Tensor, FrameInfo]] = []
+        self.pad_initial_frames()
 
     def handle(self, image: Image.Image, frame_info: FrameInfo) -> None:
         """Process the image and add to the buffer, then handle buffer processing."""
@@ -135,19 +208,42 @@ class BufferHandler:
         if len(self.buffer) < WINDOW_SIZE + self.batch_size:
             return
 
-        stacked_frames, frame_info_refs = zip(*self.buffer[:WINDOW_SIZE + self.batch_size])
+        stacked_frames, frame_info_refs = zip(*self.buffer)
         stacked_frames = torch.stack(stacked_frames)
         blink_predictions = self.blink_model.predict(stacked_frames)
-
+        if self.eye == 'left':
+            print(frame_info_refs)
+        print(len(blink_predictions), stacked_frames.size(), len(frame_info_refs), WINDOW_SIZE/2)
         for i, is_blinking in enumerate(blink_predictions):
             self.blink_stats.update_blink_stats(is_blinking)
-            if self.eye == 'left':
-                frame_info_refs[i].left_eye_pred = is_blinking
-            else:
-                frame_info_refs[i].right_eye_pred = is_blinking
+            if frame_info_refs[WINDOW_SIZE // 2 + i] is not None:
+                if self.eye == 'left':
+                    frame_info_refs[WINDOW_SIZE//2 + i].left_eye_pred = is_blinking
+                else:
+                    frame_info_refs[WINDOW_SIZE//2 + i].right_eye_pred = is_blinking
 
         # Reset the buffer by removing batch_size elements
         self.buffer = self.buffer[self.batch_size:]
+
+    def process_remaining(self) -> None:
+        """Process whatever is left in the buffer, padding with zero tensors using a sliding window approach."""
+        zero_tensor = torch.zeros_like(self.buffer[0][0])
+
+        # Add zero tensors so we have at least WINDOW_SIZE + batch_size tensors
+        while len(self.buffer) < WINDOW_SIZE + self.batch_size:
+            self.buffer.append((zero_tensor, None))
+
+        # Now process the buffer until the last frames are processed
+        while any(item[1] is not None for item in self.buffer[-(WINDOW_SIZE // 2 + self.batch_size):]):
+            self.process_buffer()
+            for _ in range(self.batch_size):
+                self.buffer.append((zero_tensor, None))
+
+    def pad_initial_frames(self) -> None:
+        """Pad the buffer with zero tensors for initial frames."""
+        zero_tensor = torch.zeros((3, 64, 64))
+        for _ in range(WINDOW_SIZE // 2):  # Padding half the window size, as it is centered around the current frame
+            self.buffer.append((zero_tensor, None))
 
 
 class ImageProcessor:

@@ -56,7 +56,7 @@ class CNNTransformer(nn.Module):
             cnn_output = self.cnn_model(x)
 
             # Cache results of the first 32 images
-            self.cnn_cache = cnn_output[:-self.batch_size].detach()  # Exclude the last image
+            self.cnn_cache = cnn_output.detach()
 
         else:
             # This means we're in a subsequent iteration
@@ -64,13 +64,13 @@ class CNNTransformer(nn.Module):
             # Process only the new image (last image in x)
             new_cnn_output = self.cnn_model(x[-self.batch_size:])  # Process the last image
             # Shift the cached results and add the new result at the end
-            self.cnn_cache = torch.cat((self.cnn_cache[self.batch_size:], new_cnn_output),
-                                       dim=0).detach()  # Shift and append the new output
+            cnn_output = torch.cat((self.cnn_cache[self.batch_size:], new_cnn_output),
+                                       dim=0)  # Shift and append the new output
 
             # Combine cached results with the new result
-            cnn_output = torch.cat((self.cnn_cache, new_cnn_output), dim=0)
+            self.cnn_cache = cnn_output.detach()
 
-        x = self.create_sliding_window_padded(cnn_output, self.num_frames)
+        x = self.sliding_window(cnn_output, self.batch_size, self.num_frames + 1)
         x = self.sequence_model(x)
         x = self.mlp_head(x)
         return self.softmax(x)
@@ -83,6 +83,34 @@ class CNNTransformer(nn.Module):
             output[i] = vector[i:i + window_size + 1]
 
         return output
+
+    def sliding_window(self, tensor, center_count, window_size):
+        """
+        Args:
+        tensor: A tensor of size [sequence_len, feature_dim].
+        center_count: Number of central elements to be extracted.
+        window_size: Size of the window around each central element.
+
+        Returns:
+        A tensor of size [center_count, window_size, feature_dim].
+        """
+        assert window_size % 2 == 1, "Window size should be odd for symmetric windows around center."
+        half_window = window_size // 2
+
+        sequence_len, feature_dim = tensor.shape
+        assert sequence_len >= window_size, "Input sequence should be at least as long as the window size."
+
+        # Calculate the starting index of the central elements
+        center_start = (sequence_len - center_count) // 2
+        center_indices = list(range(center_start, center_start + center_count))
+
+        # For each index in the center_indices list, extract a window and store in a list
+        windows = [tensor[i - half_window:i + half_window + 1] for i in center_indices]
+
+        # Stack the windows together to get the result
+        result = torch.stack(windows)
+
+        return result
 
 
 def get_blink_predictor(batch_size: int) -> CNNTransformer:
