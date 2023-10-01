@@ -75,7 +75,6 @@ class BlinkPredictor:
     def initialize_recording_directory(self):
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.session_save_dir = os.path.join(self.base_save_dir, timestamp)
-        os.makedirs(os.path.join(self.session_save_dir, 'frames'))
         os.makedirs(os.path.join(self.session_save_dir, 'left_eyes'))
         os.makedirs(os.path.join(self.session_save_dir, 'right_eyes'))
 
@@ -132,12 +131,9 @@ class BlinkPredictor:
                                               self.batch_size, 'right')
 
     def save_frame_data(self, frame_info: FrameInfo):
-        # Save frame images
-        frame_path = os.path.join(self.session_save_dir, 'frames', f"frame_{frame_info.frame_num}.jpg")
         left_eye_path = os.path.join(self.session_save_dir, 'left_eyes', f"left_eye_{frame_info.frame_num}.jpg")
         right_eye_path = os.path.join(self.session_save_dir, 'right_eyes', f"right_eye_{frame_info.frame_num}.jpg")
 
-        frame_info.frame_img.save(frame_path)
         frame_info.left_eye_img.save(left_eye_path)
         frame_info.right_eye_img.save(right_eye_path)
 
@@ -148,19 +144,17 @@ class BlinkPredictor:
     def generate_csv_from_processed_frames(self):
         csv_file_path = os.path.join(self.session_save_dir, 'blink_data.csv')
         with open(csv_file_path, 'w', newline='') as csvfile:
-            fieldnames = ['Frame Number', 'Frame Path', 'Left Eye Path', 'Right Eye Path',
+            fieldnames = ['Frame Number', 'Left Eye Path', 'Right Eye Path',
                           'Left Eye Blink Prediction', 'Right Eye Blink Prediction', 'Frame Blink Prediction']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=';')
 
             writer.writeheader()  # write the headers
             for frame_info in self.processed_frames:
-                frame_path = os.path.join('frames', f"frame_{frame_info.frame_num}.jpg")
                 left_eye_path = os.path.join('left_eyes', f"left_eye_{frame_info.frame_num}.jpg")
                 right_eye_path = os.path.join('right_eyes', f"right_eye_{frame_info.frame_num}.jpg")
 
                 writer.writerow({
                     'Frame Number': frame_info.frame_num,
-                    'Frame Path': frame_path,
                     'Left Eye Path': left_eye_path,
                     'Right Eye Path': right_eye_path,
                     'Left Eye Blink Prediction': frame_info.left_eye_pred,
