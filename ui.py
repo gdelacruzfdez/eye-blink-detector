@@ -1,6 +1,7 @@
 import tkinter as tk
 from PIL import Image, ImageTk
 from screeninfo import get_monitors
+import threading
 
 from controller import EyeDetectionController
 
@@ -12,6 +13,7 @@ class EyeDetectionUI:
         self.controller = controller
         self.root = tk.Tk()
         self.initialize_ui()
+        self.refresh_display_event = threading.Event()
 
     def initialize_ui(self):
         self.selected_camera = tk.StringVar(self.root, value=self.controller.cameras[0])
@@ -123,10 +125,11 @@ class EyeDetectionUI:
         """
         Refresh the display, which includes updating the frames, images, and recording duration.
         """
-        self.display_recording_duration()
-        self.display_frames_and_images()
-        self.display_blink_counts()
-        self.video_label.after(10, self.refresh_display)
+        if not self.refresh_display_event.is_set():
+            self.display_recording_duration()
+            self.display_frames_and_images()
+            self.display_blink_counts()
+            self.video_label.after(10, self.refresh_display)
 
     def display_recording_duration(self):
         """
@@ -193,6 +196,7 @@ class EyeDetectionUI:
         """
         Stop the eye detection and recording application.
         """
+        self.refresh_display_event.set()
         self.controller.stop()
         self.root.quit()
         self.root.destroy()

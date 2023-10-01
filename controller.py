@@ -39,10 +39,10 @@ class EyeDetectionController:
         """
         Stop the eye detection and recording application.
         """
+        self.blink_predictor.stop()
         self.video_recorder.stop_recording()  # Stop the recording explicitly
         self.stop_recording_flag.set()  # Signal the recording thread to stop
         self.recording_thread.join()  # Wait for the recording thread to finish
-        self.blink_predictor.stop()
         self.webcam_capture.release()
 
     def toggle_recording(self):
@@ -50,6 +50,7 @@ class EyeDetectionController:
         Toggle the recording state.
         """
         if not self.video_recorder.recording:
+            self.frame_count = 0
             self.blink_predictor.start_new_recording_session()
             self.video_recorder.start_recording()
         else:

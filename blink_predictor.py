@@ -85,6 +85,10 @@ class BlinkPredictor:
     def predict_blinks(self) -> None:
         """Predict blinks for the frames in the processing queue."""
         while not self.stop_signal.is_set():
+            if self.processing_queue.empty():
+                time.sleep(0.1)
+                continue
+
             start_time = time.time()
             frame_info = self.processing_queue.get()
 
