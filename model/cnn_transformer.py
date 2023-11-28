@@ -14,7 +14,7 @@ class CNNTransformer(nn.Module):
                  encoder_layers=4,
                  heads=8,
                  encoder_layer_type="local",
-                 task="blink_detection"
+                 task="blink_completeness_detection"
                  ):
         super().__init__()
 
@@ -123,7 +123,7 @@ def get_blink_predictor(batch_size: int) -> CNNTransformer:
     parent_dir = os.path.dirname(script_dir)
 
     # Construct the full path to the model checkpoint
-    checkpoint_path = os.path.join(parent_dir, "model.pt")
+    checkpoint_path = os.path.join(parent_dir, "model_blink_completeness_all_data.pt")
 
     checkpoint = torch.load(checkpoint_path,
                             map_location=torch.device('cpu'))

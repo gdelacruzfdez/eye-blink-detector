@@ -9,7 +9,6 @@ from queue import Queue
 import time
 import os
 from datetime import datetime
-import pandas as pd
 import csv
 
 # Constant defining the size of the window for processing
@@ -149,8 +148,8 @@ class BlinkPredictor:
         csv_file_path = os.path.join(self.session_save_dir, 'blink_data.csv')
         with open(csv_file_path, 'w', newline='') as csvfile:
             fieldnames = ['Frame Number', 'Left Eye Path', 'Right Eye Path',
-                          'Left Eye Blink Prediction', 'Left Eye Blink Probability', 'Right Eye Blink Prediction',
-                          'Right Eye Blink Probability', 'Average Blink Probability', 'Frame Blink Prediction']
+                          'Left Eye Blink Prediction', 'Left Eye Blink Probability', 'Left Eye Closed Probability', 'Right Eye Blink Prediction',
+                          'Right Eye Blink Probability', 'Right Eye Closed Probability', 'Average Blink Probability', 'Frame Blink Prediction']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=';')
 
             writer.writeheader()  # write the headers
@@ -158,23 +157,22 @@ class BlinkPredictor:
                 left_eye_path = os.path.join('left_eyes', f"left_eye_{frame_info.frame_num}.jpg")
                 right_eye_path = os.path.join('right_eyes', f"right_eye_{frame_info.frame_num}.jpg")
 
-                avg_probability = (frame_info.left_eye_prob + frame_info.right_eye_prob) / 2
-                frame_blink_prediction = 1 if avg_probability > 0.5 else 0
+                avg_blink_probability = (frame_info.left_eye_blink_prob + frame_info.right_eye_blink_prob) / 2
+                frame_blink_prediction = 1 if avg_blink_probability > 0.5 else 0
 
                 writer.writerow({
                     'Frame Number': frame_info.frame_num,
                     'Left Eye Path': left_eye_path,
                     'Right Eye Path': right_eye_path,
                     'Left Eye Blink Prediction': frame_info.left_eye_pred,
-                    'Left Eye Blink Probability': round(frame_info.left_eye_prob, 4),
+                    'Left Eye Blink Probability': round(frame_info.left_eye_blink_prob, 4),
+                    'Left Eye Closed Probability': round(frame_info.left_eye_closed_prob, 4),
                     'Right Eye Blink Prediction': frame_info.right_eye_pred,
-                    'Right Eye Blink Probability': round(frame_info.right_eye_prob,4),
-                    'Average Blink Probability': round(avg_probability, 4),
+                    'Right Eye Blink Probability': round(frame_info.right_eye_blink_prob, 4),
+                    'Right Eye Closed Probability': round(frame_info.right_eye_closed_prob, 4),
+                    'Average Blink Probability': round(avg_blink_probability, 4),
                     'Frame Blink Prediction': frame_blink_prediction
                 })
-
-    def generate_excel(self, dataframe: pd.DataFrame, filename: str = "results.xlsx"):
-        dataframe.to_excel(os.path.join(self.session_save_dir, filename), index=False)
 
     def end_recording_session(self) -> None:
         # Wait until the queue is completely processed
@@ -223,15 +221,17 @@ class BufferHandler:
         stacked_frames = torch.stack(stacked_frames)
         blink_predictions = self.blink_model.predict(stacked_frames)
 
-        for i, (is_blinking, probability) in enumerate(blink_predictions):
+        for i, (is_blinking, blink_probability, closed_eye_probability) in enumerate(blink_predictions):
             self.blink_stats.update_blink_stats(is_blinking)
             if frame_info_refs[WINDOW_SIZE // 2 + i] is not None:
                 if self.eye == 'left':
                     frame_info_refs[WINDOW_SIZE // 2 + i].left_eye_pred = is_blinking
-                    frame_info_refs[WINDOW_SIZE // 2 + i].left_eye_prob = probability
+                    frame_info_refs[WINDOW_SIZE // 2 + i].left_eye_blink_prob = blink_probability
+                    frame_info_refs[WINDOW_SIZE // 2 + i].left_eye_closed_prob = closed_eye_probability
                 else:
                     frame_info_refs[WINDOW_SIZE // 2 + i].right_eye_pred = is_blinking
-                    frame_info_refs[WINDOW_SIZE // 2 + i].right_eye_prob = probability
+                    frame_info_refs[WINDOW_SIZE // 2 + i].right_eye_blink_prob = blink_probability
+                    frame_info_refs[WINDOW_SIZE // 2 + i].right_eye_closed_prob = closed_eye_probability
 
         # Reset the buffer by removing batch_size elements
         self.buffer = self.buffer[self.batch_size:]
@@ -284,12 +284,12 @@ class BlinkModel:
     def __init__(self, batch_size: int):
         self.model = get_blink_predictor(batch_size)
 
-    def predict(self, batch: torch.Tensor) -> list[tuple[int, float]]:
+    def predict(self, batch: torch.Tensor) -> list[tuple[int, float, float]]:
         with torch.no_grad():
             predictions = self.model(batch)
             _, predicted_classes = torch.max(predictions.data, 1)
 
-        return [(item, predictions[i][1].item()) for i, item in enumerate(predicted_classes.tolist())]
+        return [(item, predictions[i][1].item() + predictions[i][2].item(), predictions[i][2].item()) for i, item in enumerate(predicted_classes.tolist())]
 
 
 class BlinkStatistics:

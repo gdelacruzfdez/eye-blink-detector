@@ -116,8 +116,10 @@ class EyeDetectionController:
                 right_eye_img=right_eye_image,
                 left_eye_pred=None,  # We don't have predictions yet.
                 right_eye_pred=None,
-                left_eye_prob=None,
-                right_eye_prob=None,
+                left_eye_blink_prob=None,
+                right_eye_blink_prob=None,
+                left_eye_closed_prob=None,
+                right_eye_closed_prob=None,
             )
             if self.video_recorder.recording:
                 self.blink_predictor.add_frame_to_processing_queue(frame_info)
