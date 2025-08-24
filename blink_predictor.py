@@ -1,7 +1,7 @@
 import threading
 import torch
 from torchvision import transforms
-
+from typing import List, Union
 from frame_info import FrameInfo
 from model.cnn_transformer import get_blink_predictor
 from PIL import Image
@@ -9,7 +9,10 @@ from queue import Queue
 import time
 import os
 from datetime import datetime
+from blink_data_exporter import BlinkDataExporter
 import csv
+
+from webcam_capture import WebcamCapture
 
 # Constant defining the size of the window for processing
 WINDOW_SIZE = 32
@@ -22,7 +25,8 @@ class BlinkPredictor:
     to ensure that frames are processed without blocking the main thread.
     """
 
-    def __init__(self, batch_size: int = 5, base_save_dir: str = 'recordings'):
+    def __init__(self, webcam_capture: WebcamCapture, batch_size: int = 5, base_save_dir: str = 'recordings'):
+        self.webcam_capture = webcam_capture
         self.batch_size = batch_size
         # Initialize image processor and blink prediction model
         self.image_processor = ImageProcessor()
@@ -140,40 +144,6 @@ class BlinkPredictor:
         frame_info.left_eye_img.save(left_eye_path)
         frame_info.right_eye_img.save(right_eye_path)
 
-    import csv
-
-    # ... (rest of the code in BlinkPredictor)
-
-    def generate_csv_from_processed_frames(self):
-        csv_file_path = os.path.join(self.session_save_dir, 'blink_data.csv')
-        with open(csv_file_path, 'w', newline='') as csvfile:
-            fieldnames = ['Frame Number', 'Left Eye Path', 'Right Eye Path',
-                          'Left Eye Blink Prediction', 'Left Eye Blink Probability', 'Left Eye Closed Probability', 'Right Eye Blink Prediction',
-                          'Right Eye Blink Probability', 'Right Eye Closed Probability', 'Average Blink Probability', 'Frame Blink Prediction']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=';')
-
-            writer.writeheader()  # write the headers
-            for frame_info in self.processed_frames:
-                left_eye_path = os.path.join('left_eyes', f"left_eye_{frame_info.frame_num}.jpg")
-                right_eye_path = os.path.join('right_eyes', f"right_eye_{frame_info.frame_num}.jpg")
-
-                avg_blink_probability = (frame_info.left_eye_blink_prob + frame_info.right_eye_blink_prob) / 2
-                frame_blink_prediction = 1 if avg_blink_probability > 0.5 else 0
-
-                writer.writerow({
-                    'Frame Number': frame_info.frame_num,
-                    'Left Eye Path': left_eye_path,
-                    'Right Eye Path': right_eye_path,
-                    'Left Eye Blink Prediction': frame_info.left_eye_pred,
-                    'Left Eye Blink Probability': round(frame_info.left_eye_blink_prob, 4),
-                    'Left Eye Closed Probability': round(frame_info.left_eye_closed_prob, 4),
-                    'Right Eye Blink Prediction': frame_info.right_eye_pred,
-                    'Right Eye Blink Probability': round(frame_info.right_eye_blink_prob, 4),
-                    'Right Eye Closed Probability': round(frame_info.right_eye_closed_prob, 4),
-                    'Average Blink Probability': round(avg_blink_probability, 4),
-                    'Frame Blink Prediction': frame_blink_prediction
-                })
-
     def end_recording_session(self) -> None:
         # Wait until the queue is completely processed
         self.processing_queue.join()
@@ -182,8 +152,9 @@ class BlinkPredictor:
         self.right_eye_buffer.process_remaining()
 
         """Processes any final tasks at the end of a recording session."""
-        if self.export_recording_data and self.session_save_dir and self.processed_frames:  # Only if we have a valid session directory and frames
-            self.generate_csv_from_processed_frames()
+        if self.export_recording_data and self.session_save_dir and self.processed_frames:
+            exporter = BlinkDataExporter(self.session_save_dir, self.webcam_capture.get_fps())
+            exporter.export_all_blink_data_to_excel(self.processed_frames)
 
 
 class BufferHandler:

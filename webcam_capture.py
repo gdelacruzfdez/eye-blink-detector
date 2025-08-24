@@ -14,6 +14,7 @@ class WebcamCapture:
             numpy.ndarray or None: The captured frame, or None if there was an error.
         """
         ret, frame = self.cap.read()
+
         if ret:
             return frame
         return None
@@ -49,7 +50,7 @@ class WebcamCapture:
         Returns:
             float: Frames per second.
         """
-        return self.cap.get(cv2.CAP_PROP_FPS)
+        return self.cap.get(cv2.CAP_PROP_FPS) if self.cap.get(cv2.CAP_PROP_FPS) != 0 else 30
 
     @staticmethod        
     def get_available_cameras(max_range):

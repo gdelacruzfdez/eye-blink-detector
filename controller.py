@@ -2,6 +2,7 @@ import threading
 from queue import Queue
 import time
 
+from blink_data_exporter import BlinkDataExporter
 from eye_detector import EyeDetector
 from frame_info import FrameInfo
 from frame_processor import FrameProcessor
@@ -10,6 +11,7 @@ from webcam_capture import WebcamCapture
 from blink_predictor import BlinkPredictor
 from PIL import Image
 import cv2
+import os
 
 DEFAULT_CAMERA = 0
 
@@ -21,7 +23,7 @@ class EyeDetectionController:
         self.frame_queue = Queue()
         self.eye_detector = EyeDetector()
         self.frame_processor = FrameProcessor()
-        self.blink_predictor = BlinkPredictor()
+        self.blink_predictor = BlinkPredictor(self.webcam_capture)
         self.video_recorder = VideoRecorder(self.webcam_capture, self.blink_predictor)
         self.frame_count = 0
 
@@ -143,3 +145,9 @@ class EyeDetectionController:
 
     def get_frame_height(self):
         return self.webcam_capture.get_frame_height()
+
+    @staticmethod
+    def generate_report_from_csv(csv_file_path: str, frame_rate: int):
+        csv_directory = os.path.dirname(csv_file_path)
+        exporter = BlinkDataExporter(csv_directory, frame_rate)
+        exporter.generate_report_from_csv(csv_file_path)

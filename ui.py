@@ -2,6 +2,9 @@ import tkinter as tk
 from PIL import Image, ImageTk
 from screeninfo import get_monitors
 import threading
+from tkinter import filedialog
+import tkinter.messagebox as messagebox
+import tkinter.simpledialog as simpledialog
 
 from controller import EyeDetectionController
 
@@ -97,7 +100,19 @@ class EyeDetectionUI:
                                      onvalue=True, offvalue=False, command=self.handle_export_data_toggle)
         menubar.add_cascade(label="Options", menu=options_menu)
 
+        # Create the report menu
+        report_menu = tk.Menu(menubar, tearoff=0)
+        report_menu.add_command(label="Generate Report from CSV", command=self.generate_report_from_csv)
+        menubar.add_cascade(label="Report", menu=report_menu)
         self.root.config(menu=menubar)
+
+    def generate_report_from_csv(self):
+        csv_file_path = filedialog.askopenfilename(title="Select CSV File", filetypes=[("CSV Files", "*.csv")])
+
+        if csv_file_path:
+            frame_rate = simpledialog.askfloat("Frame Rate", "Enter the frame rate (default is 30):", initialvalue=30)
+            self.controller.generate_report_from_csv(csv_file_path, frame_rate)
+            messagebox.showinfo("Success", "Excel Report generated successfully!")
 
     def handle_export_data_toggle(self):
         self.controller.set_export_recording_data(self.export_recording_data_var.get())
