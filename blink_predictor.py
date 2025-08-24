@@ -12,7 +12,7 @@ from datetime import datetime
 from blink_data_exporter import BlinkDataExporter
 import csv
 
-from webcam_capture import WebcamCapture
+from frame_source import FrameSource
 
 # Constant defining the size of the window for processing
 WINDOW_SIZE = 32
@@ -25,8 +25,8 @@ class BlinkPredictor:
     to ensure that frames are processed without blocking the main thread.
     """
 
-    def __init__(self, webcam_capture: WebcamCapture, batch_size: int = 5, base_save_dir: str = 'recordings'):
-        self.webcam_capture = webcam_capture
+    def __init__(self, frame_source: FrameSource, batch_size: int = 5, base_save_dir: str = 'recordings'):
+        self.frame_source = frame_source
         self.batch_size = batch_size
         # Initialize image processor and blink prediction model
         self.image_processor = ImageProcessor()
@@ -153,7 +153,7 @@ class BlinkPredictor:
 
         """Processes any final tasks at the end of a recording session."""
         if self.export_recording_data and self.session_save_dir and self.processed_frames:
-            exporter = BlinkDataExporter(self.session_save_dir, self.webcam_capture.get_fps())
+            exporter = BlinkDataExporter(self.session_save_dir, self.frame_source.get_fps())
             exporter.export_all_blink_data_to_excel(self.processed_frames)
 
 
