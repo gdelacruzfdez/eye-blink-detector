@@ -1,9 +1,14 @@
 from typing import Optional
+
 import cv2
 import numpy as np
 
-class WebcamCapture:
-    def __init__(self, device=0):
+from frame_source import FrameSource
+
+class WebcamCapture(FrameSource):
+    """Frame source that captures frames from a webcam device."""
+
+    def __init__(self, device: int = 0) -> None:
         self.cap = cv2.VideoCapture(device)
 
     def get_frame(self) -> Optional[np.ndarray]:
@@ -19,7 +24,7 @@ class WebcamCapture:
             return frame
         return None
 
-    def release(self):
+    def release(self) -> None:
         """
         Release the webcam capture.
         """
@@ -53,7 +58,7 @@ class WebcamCapture:
         return self.cap.get(cv2.CAP_PROP_FPS) if self.cap.get(cv2.CAP_PROP_FPS) != 0 else 30
 
     @staticmethod        
-    def get_available_cameras(max_range):
+    def get_available_cameras(max_range: int) -> list[str]:
         cameras = []
         for i in range(max_range):
             cap = cv2.VideoCapture(i)
