@@ -3,9 +3,8 @@ from queue import Queue
 import time
 
 from blink_data_exporter import BlinkDataExporter
-from eye_detector import EyeDetector
 from frame_info import FrameInfo, EyeData, Eye
-from frame_processor import FrameProcessor
+from eye_extractor import DlibEyeExtractor
 from video_recorder import VideoRecorder
 from blink_predictor import BlinkPredictor
 from frame_source import FrameSource
@@ -20,8 +19,7 @@ class EyeDetectionController:
         self.cameras = WebcamCapture.get_available_cameras(5)
         self.frame_source = frame_source
         self.frame_queue = Queue()
-        self.eye_detector = EyeDetector()
-        self.frame_processor = FrameProcessor()
+        self.eye_extractor = DlibEyeExtractor()
         self.blink_predictor = BlinkPredictor(self.frame_source)
         self.video_recorder = VideoRecorder(self.frame_source, self.blink_predictor)
         self.frame_count = 0
@@ -103,9 +101,9 @@ class EyeDetectionController:
             frame_width = self.frame_source.get_frame_width()
             frame_height = self.frame_source.get_frame_height()
 
-            eye_boxes = self.eye_detector.calculate_eye_boxes(frame)
-            frame_with_boxes = self.frame_processor.visualize_eye_boxes(frame, eye_boxes)
-            left_eye_images, right_eye_images = self.frame_processor.extract_eye_images(frame, eye_boxes)
+            left_eye_images, right_eye_images, frame_with_boxes, eye_boxes = (
+                self.eye_extractor.extract(frame)
+            )
 
             eyes: dict[Eye, EyeData] = {}
             if len(left_eye_images) > 0:
