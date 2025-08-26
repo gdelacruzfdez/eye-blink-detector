@@ -4,7 +4,7 @@ import time
 
 from blink_data_exporter import BlinkDataExporter
 from frame_info import FrameInfo, EyeData, Eye
-from eye_extractor import DlibEyeExtractor
+from eye_extractor import EyeExtractor
 from video_recorder import VideoRecorder
 from blink_predictor import BlinkPredictor
 from frame_source import FrameSource
@@ -15,12 +15,18 @@ import os
 
 
 class EyeDetectionController:
-    def __init__(self, frame_source: FrameSource) -> None:
+    def __init__(
+        self,
+        frame_source: FrameSource,
+        eye_extractor: EyeExtractor,
+        eyes: list[Eye] | None = None,
+    ) -> None:
         self.cameras = WebcamCapture.get_available_cameras(5)
         self.frame_source = frame_source
         self.frame_queue = Queue()
-        self.eye_extractor = DlibEyeExtractor()
-        self.blink_predictor = BlinkPredictor(self.frame_source)
+        self.eye_extractor = eye_extractor
+        self.eyes = eyes if eyes is not None else [Eye.LEFT, Eye.RIGHT]
+        self.blink_predictor = BlinkPredictor(self.frame_source, self.eyes)
         self.video_recorder = VideoRecorder(self.frame_source, self.blink_predictor)
         self.frame_count = 0
 
@@ -98,17 +104,14 @@ class EyeDetectionController:
 
         if frame is not None:
             self.frame_count += 1
-            frame_width = self.frame_source.get_frame_width()
-            frame_height = self.frame_source.get_frame_height()
-
             left_eye_images, right_eye_images, frame_with_boxes, eye_boxes = (
                 self.eye_extractor.extract(frame)
             )
 
             eyes: dict[Eye, EyeData] = {}
-            if len(left_eye_images) > 0:
+            if Eye.LEFT in self.eyes and len(left_eye_images) > 0:
                 eyes[Eye.LEFT] = EyeData(img=left_eye_images[0])
-            if len(right_eye_images) > 0:
+            if Eye.RIGHT in self.eyes and len(right_eye_images) > 0:
                 eyes[Eye.RIGHT] = EyeData(img=right_eye_images[0])
 
             frame_info = FrameInfo(
@@ -130,10 +133,14 @@ class EyeDetectionController:
         return None
 
     def get_left_eye_blink_count(self):
-        return self.blink_predictor.left_eye_stats.blink_count
+        if Eye.LEFT in self.eyes:
+            return self.blink_predictor.left_eye_stats.blink_count
+        return 0
 
     def get_right_eye_blink_count(self):
-        return self.blink_predictor.right_eye_stats.blink_count
+        if Eye.RIGHT in self.eyes:
+            return self.blink_predictor.right_eye_stats.blink_count
+        return 0
 
     def get_frame_width(self):
         return self.frame_source.get_frame_width()
