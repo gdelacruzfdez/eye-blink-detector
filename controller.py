@@ -4,7 +4,7 @@ import time
 
 from blink_data_exporter import BlinkDataExporter
 from eye_detector import EyeDetector
-from frame_info import FrameInfo
+from frame_info import FrameInfo, EyeData, Eye
 from frame_processor import FrameProcessor
 from video_recorder import VideoRecorder
 from blink_predictor import BlinkPredictor
@@ -107,24 +107,20 @@ class EyeDetectionController:
             frame_with_boxes = self.frame_processor.visualize_eye_boxes(frame, eye_boxes)
             left_eye_images, right_eye_images = self.frame_processor.extract_eye_images(frame, eye_boxes)
 
-            left_eye_image = left_eye_images[0] if len(left_eye_images) > 0 else Image.new("RGB", (1, 1), (0, 0, 0))
-            right_eye_image = right_eye_images[0] if len(right_eye_images) > 0 else Image.new("RGB", (1, 1), (0, 0, 0))
+            eyes: dict[Eye, EyeData] = {}
+            if len(left_eye_images) > 0:
+                eyes[Eye.LEFT] = EyeData(img=left_eye_images[0])
+            if len(right_eye_images) > 0:
+                eyes[Eye.RIGHT] = EyeData(img=right_eye_images[0])
 
             frame_info = FrameInfo(
                 frame_num=self.frame_count,
                 frame_img=Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)),
                 frame_with_boxes=frame_with_boxes,
                 eye_boxes=eye_boxes,
-                left_eye_img=left_eye_image,
-                right_eye_img=right_eye_image,
-                left_eye_pred=None,  # We don't have predictions yet.
-                right_eye_pred=None,
-                left_eye_blink_prob=None,
-                right_eye_blink_prob=None,
-                left_eye_closed_prob=None,
-                right_eye_closed_prob=None,
+                eyes=eyes,
             )
-            if self.video_recorder.recording:
+            if self.video_recorder.recording and eyes:
                 self.blink_predictor.add_frame_to_processing_queue(frame_info)
 
             return frame_info
