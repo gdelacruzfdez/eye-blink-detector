@@ -7,6 +7,7 @@ import tkinter.messagebox as messagebox
 import tkinter.simpledialog as simpledialog
 
 from controller import EyeDetectionController
+from frame_info import Eye
 
 FONT_BOLD = ("Arial", 12, "bold")
 
@@ -14,6 +15,8 @@ FONT_BOLD = ("Arial", 12, "bold")
 class EyeDetectionUI:
     def __init__(self, controller: EyeDetectionController):
         self.controller = controller
+        self.left_eye_present = Eye.LEFT in self.controller.eyes
+        self.right_eye_present = Eye.RIGHT in self.controller.eyes
         self.root = tk.Tk()
         self.initialize_ui()
         self.refresh_display_event = threading.Event()
@@ -53,17 +56,23 @@ class EyeDetectionUI:
         self.video_label.grid(row=0, column=0, columnspan=2, padx=10, pady=10)
 
     def setup_eye_displays(self):
-        self.left_eye_label = tk.Label(self.root)
-        self.right_eye_label = tk.Label(self.root)
-        self.left_eye_label.grid(row=1, column=0, padx=10, pady=5)
-        self.right_eye_label.grid(row=1, column=1, padx=10, pady=5)
+        if self.left_eye_present:
+            self.left_eye_label = tk.Label(self.root)
+            self.left_eye_label.grid(row=1, column=0, padx=10, pady=5)
+        if self.right_eye_present:
+            col = 1 if self.left_eye_present else 0
+            self.right_eye_label = tk.Label(self.root)
+            self.right_eye_label.grid(row=1, column=col, padx=10, pady=5)
 
     def setup_eye_labels(self):
-        self.left_eye_separator = tk.Label(self.root, text="Left Eye", font=FONT_BOLD, pady=5)
-        self.left_eye_separator.grid(row=2, column=0)
+        if self.left_eye_present:
+            self.left_eye_separator = tk.Label(self.root, text="Left Eye", font=FONT_BOLD, pady=5)
+            self.left_eye_separator.grid(row=2, column=0)
 
-        self.right_eye_separator = tk.Label(self.root, text="Right Eye", font=FONT_BOLD, pady=5)
-        self.right_eye_separator.grid(row=2, column=1)
+        if self.right_eye_present:
+            col = 1 if self.left_eye_present else 0
+            self.right_eye_separator = tk.Label(self.root, text="Right Eye", font=FONT_BOLD, pady=5)
+            self.right_eye_separator.grid(row=2, column=col)
 
     def setup_controls(self):
         self.record_button = tk.Button(self.root, text="Start Recording", command=self.toggle_recording)
@@ -81,11 +90,14 @@ class EyeDetectionUI:
         self.camera_selector.grid(row=6, column=1, pady=5)
 
     def setup_blink_counter(self):
-        self.left_blinks_label = tk.Label(self.root, text="Left Eye Blink Count: 0", font=FONT_BOLD)
-        self.left_blinks_label.grid(row=7, column=0, columnspan=1, pady=5)
+        if self.left_eye_present:
+            self.left_blinks_label = tk.Label(self.root, text="Left Eye Blink Count: 0", font=FONT_BOLD)
+            self.left_blinks_label.grid(row=7, column=0, columnspan=1, pady=5)
 
-        self.right_blinks_label = tk.Label(self.root, text="Right Eye Blink Count: 0", font=FONT_BOLD)
-        self.right_blinks_label.grid(row=7, column=1, columnspan=1, pady=5)
+        if self.right_eye_present:
+            col = 1 if self.left_eye_present else 0
+            self.right_blinks_label = tk.Label(self.root, text="Right Eye Blink Count: 0", font=FONT_BOLD)
+            self.right_blinks_label.grid(row=7, column=col, columnspan=1, pady=5)
 
     def setup_menu(self):
         self.export_recording_data_var = tk.BooleanVar(value=True)
@@ -157,10 +169,12 @@ class EyeDetectionUI:
             self.recording_time_label.configure(text=f"{hours:02}:{minutes:02}:{seconds:02}")
 
     def display_blink_counts(self):
-        left_blinks = self.controller.get_left_eye_blink_count()
-        right_blinks = self.controller.get_right_eye_blink_count()
-        self.left_blinks_label.configure(text=f"Left Eye Blink Count: {left_blinks}")
-        self.right_blinks_label.configure(text=f"Right Eye Blink Count: {right_blinks}")
+        if self.left_eye_present:
+            left_blinks = self.controller.get_left_eye_blink_count()
+            self.left_blinks_label.configure(text=f"Left Eye Blink Count: {left_blinks}")
+        if self.right_eye_present:
+            right_blinks = self.controller.get_right_eye_blink_count()
+            self.right_blinks_label.configure(text=f"Right Eye Blink Count: {right_blinks}")
 
     def display_frames_and_images(self):
         """
@@ -170,8 +184,6 @@ class EyeDetectionUI:
 
         if frame_info:
             frame_with_boxes = frame_info.frame_with_boxes
-            left_eye_image = frame_info.left_eye_img
-            right_eye_image = frame_info.right_eye_img
 
             frame_width, frame_height = frame_with_boxes.size
             aspect_ratio = frame_width / frame_height
@@ -182,22 +194,26 @@ class EyeDetectionUI:
             # Resize the frame to fit the UI window
             frame_with_boxes = frame_with_boxes.resize((frame_new_width, frame_new_height), Image.BILINEAR)
 
-            # Resize the eye images to half window width and adjusted height
-            left_eye_image = left_eye_image.resize((frame_new_width // 2, frame_new_height // 3), Image.BILINEAR)
-            right_eye_image = right_eye_image.resize((frame_new_width // 2, frame_new_height // 3), Image.BILINEAR)
-
             # Convert the PIL Images to Tkinter PhotoImage format
             tk_frame = ImageTk.PhotoImage(frame_with_boxes)
-            tk_left_eye = ImageTk.PhotoImage(left_eye_image)
-            tk_right_eye = ImageTk.PhotoImage(right_eye_image)
-
-            # Update the video and eye labels with the new images
             self.video_label.configure(image=tk_frame)
             self.video_label.image = tk_frame
-            self.left_eye_label.configure(image=tk_left_eye)
-            self.left_eye_label.image = tk_left_eye
-            self.right_eye_label.configure(image=tk_right_eye)
-            self.right_eye_label.image = tk_right_eye
+
+            if self.left_eye_present:
+                left_eye_image = frame_info.left_eye_img.resize(
+                    (frame_new_width // 2, frame_new_height // 3), Image.BILINEAR
+                )
+                tk_left_eye = ImageTk.PhotoImage(left_eye_image)
+                self.left_eye_label.configure(image=tk_left_eye)
+                self.left_eye_label.image = tk_left_eye
+
+            if self.right_eye_present:
+                right_eye_image = frame_info.right_eye_img.resize(
+                    (frame_new_width // 2, frame_new_height // 3), Image.BILINEAR
+                )
+                tk_right_eye = ImageTk.PhotoImage(right_eye_image)
+                self.right_eye_label.configure(image=tk_right_eye)
+                self.right_eye_label.image = tk_right_eye
 
     def start(self):
         """
