@@ -3,9 +3,7 @@ from queue import Queue
 import time
 
 from blink_data_exporter import BlinkDataExporter
-from eye_detector import EyeDetector
 from frame_info import FrameInfo
-from frame_processor import FrameProcessor
 from video_recorder import VideoRecorder
 from webcam_capture import WebcamCapture
 from blink_predictor import BlinkPredictor
@@ -13,16 +11,17 @@ from PIL import Image
 import cv2
 import os
 
+from eye_extractor import EyeExtractor, DlibEyeExtractor
+
 DEFAULT_CAMERA = 0
 
 
 class EyeDetectionController:
-    def  __init__(self):
+    def __init__(self, eye_extractor: EyeExtractor | None = None):
         self.cameras = WebcamCapture.get_available_cameras(5)
         self.webcam_capture = WebcamCapture(int(self.cameras[DEFAULT_CAMERA]))
         self.frame_queue = Queue()
-        self.eye_detector = EyeDetector()
-        self.frame_processor = FrameProcessor()
+        self.eye_extractor = eye_extractor or DlibEyeExtractor()
         self.blink_predictor = BlinkPredictor(self.webcam_capture)
         self.video_recorder = VideoRecorder(self.webcam_capture, self.blink_predictor)
         self.frame_count = 0
@@ -99,15 +98,18 @@ class EyeDetectionController:
 
         if frame is not None:
             self.frame_count += 1
-            frame_width = self.webcam_capture.get_frame_width()
-            frame_height = self.webcam_capture.get_frame_height()
+            left_eye_image, right_eye_image = self.eye_extractor.extract(frame)
+            frame_with_boxes = getattr(
+                self.eye_extractor,
+                "last_frame_with_boxes",
+                Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)),
+            )
+            eye_boxes = getattr(self.eye_extractor, "last_eye_boxes", [])
 
-            eye_boxes = self.eye_detector.calculate_eye_boxes(frame)
-            frame_with_boxes = self.frame_processor.visualize_eye_boxes(frame, eye_boxes)
-            left_eye_images, right_eye_images = self.frame_processor.extract_eye_images(frame, eye_boxes)
-
-            left_eye_image = left_eye_images[0] if len(left_eye_images) > 0 else Image.new("RGB", (1, 1), (0, 0, 0))
-            right_eye_image = right_eye_images[0] if len(right_eye_images) > 0 else Image.new("RGB", (1, 1), (0, 0, 0))
+            if left_eye_image is None:
+                left_eye_image = Image.new("RGB", (1, 1), (0, 0, 0))
+            if right_eye_image is None:
+                right_eye_image = Image.new("RGB", (1, 1), (0, 0, 0))
 
             frame_info = FrameInfo(
                 frame_num=self.frame_count,
