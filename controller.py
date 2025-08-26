@@ -5,25 +5,25 @@ import time
 from blink_data_exporter import BlinkDataExporter
 from frame_info import FrameInfo
 from video_recorder import VideoRecorder
-from webcam_capture import WebcamCapture
 from blink_predictor import BlinkPredictor
+from frame_source import FrameSource
+from webcam_capture import WebcamCapture
 from PIL import Image
 import cv2
 import os
-
 from eye_extractor import EyeExtractor, DlibEyeExtractor
-
-DEFAULT_CAMERA = 0
 
 
 class EyeDetectionController:
-    def __init__(self, eye_extractor: EyeExtractor | None = None):
+    def __init__(self, frame_source: FrameSource) -> None:
         self.cameras = WebcamCapture.get_available_cameras(5)
-        self.webcam_capture = WebcamCapture(int(self.cameras[DEFAULT_CAMERA]))
+        self.frame_source = frame_source
         self.frame_queue = Queue()
         self.eye_extractor = eye_extractor or DlibEyeExtractor()
-        self.blink_predictor = BlinkPredictor(self.webcam_capture)
-        self.video_recorder = VideoRecorder(self.webcam_capture, self.blink_predictor)
+        self.eye_detector = EyeDetector()
+        self.frame_processor = FrameProcessor()
+        self.blink_predictor = BlinkPredictor(self.frame_source)
+        self.video_recorder = VideoRecorder(self.frame_source, self.blink_predictor)
         self.frame_count = 0
 
         self.recording_thread = threading.Thread(target=self.record_frames)
@@ -44,7 +44,7 @@ class EyeDetectionController:
         self.video_recorder.stop_recording()  # Stop the recording explicitly
         self.stop_recording_flag.set()  # Signal the recording thread to stop
         self.recording_thread.join()  # Wait for the recording thread to finish
-        self.webcam_capture.release()
+        self.frame_source.release()
 
     def toggle_recording(self):
         """
@@ -62,7 +62,7 @@ class EyeDetectionController:
         frame_count = 0
         prev_time = time.time()
         while not self.stop_recording_flag.is_set():
-            frame = self.webcam_capture.get_frame()
+            frame = self.frame_source.get_frame()
             frame_count += 1
             current_time = time.time()
             elapsed_time = current_time - prev_time
@@ -82,8 +82,10 @@ class EyeDetectionController:
         """
         Switch the webcam based on the dropdown selection.
         """
-        self.webcam_capture.release()
-        self.webcam_capture = WebcamCapture(int(selection))
+        self.frame_source.release()
+        self.frame_source = WebcamCapture(int(selection))
+        self.blink_predictor.frame_source = self.frame_source
+        self.video_recorder.frame_source = self.frame_source
 
     def set_export_recording_data(self, value: bool):
         self.blink_predictor.set_export_recording_data(value)
@@ -143,10 +145,10 @@ class EyeDetectionController:
         return self.blink_predictor.right_eye_stats.blink_count
 
     def get_frame_width(self):
-        return self.webcam_capture.get_frame_width()
+        return self.frame_source.get_frame_width()
 
     def get_frame_height(self):
-        return self.webcam_capture.get_frame_height()
+        return self.frame_source.get_frame_height()
 
     @staticmethod
     def generate_report_from_csv(csv_file_path: str, frame_rate: int):

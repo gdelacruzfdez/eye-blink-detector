@@ -12,6 +12,7 @@ class LocalSelfAttention(torch.nn.Module):
     def __init__(self, hidden_size: int, num_attention_heads: int, window_size: int = 128, dropout: float = 0.1,
                  bias: bool = True, autopad: bool = True):
         super().__init__()
+        self.batch_first = True
         if hidden_size % num_attention_heads != 0:
             raise ValueError(
                 "The hidden size (%d) is not a multiple of the number of attention "
