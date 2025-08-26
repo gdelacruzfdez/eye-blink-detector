@@ -1,8 +1,8 @@
 import threading
 import torch
 from torchvision import transforms
-from typing import List, Union
-from frame_info import FrameInfo
+from typing import List, Dict
+from frame_info import FrameInfo, EyeData, Eye
 from model.cnn_transformer import get_blink_predictor
 from PIL import Image
 from queue import Queue
@@ -25,29 +25,36 @@ class BlinkPredictor:
     to ensure that frames are processed without blocking the main thread.
     """
 
-    def __init__(self, frame_source: FrameSource, batch_size: int = 5, base_save_dir: str = 'recordings'):
+    def __init__(self, frame_source: FrameSource, eyes: List[Eye] | None = None,
+                 batch_size: int = 5, base_save_dir: str = 'recordings'):
         self.frame_source = frame_source
         self.batch_size = batch_size
-        # Initialize image processor and blink prediction model
-        self.image_processor = ImageProcessor()
-        self.blink_model_left = BlinkModel(batch_size)
-        self.blink_model_right = BlinkModel(batch_size)
+        self.eyes = eyes if eyes is not None else [Eye.LEFT, Eye.RIGHT]
 
-        # Separate statistics for left and right eyes
-        self.left_eye_stats = BlinkStatistics()
-        self.right_eye_stats = BlinkStatistics()
+        # Initialize image processor
+        self.image_processor = ImageProcessor()
+
+        # Create blink models, statistics and buffers for each eye
+        self.blink_models: Dict[Eye, BlinkModel] = {
+            eye: BlinkModel(batch_size) for eye in self.eyes
+        }
+        self.eye_stats: Dict[Eye, BlinkStatistics] = {
+            eye: BlinkStatistics() for eye in self.eyes
+        }
+        self.eye_buffers: Dict[Eye, BufferHandler] = {
+            eye: BufferHandler(self.image_processor, self.blink_models[eye], self.eye_stats[eye],
+                               self.batch_size, eye) for eye in self.eyes
+        }
+
+        # Backwards compatible attributes
+        self.left_eye_stats = self.eye_stats.get(Eye.LEFT, BlinkStatistics())
+        self.right_eye_stats = self.eye_stats.get(Eye.RIGHT, BlinkStatistics())
 
         # Queue for processing frames
         self.processing_queue = Queue()
 
         # Thread for blink prediction
         self.eye_predictor_thread = threading.Thread(target=self.predict_blinks)
-
-        # Buffers for left and right eyes
-        self.left_eye_buffer = BufferHandler(self.image_processor, self.blink_model_left, self.left_eye_stats,
-                                             self.batch_size, 'left')
-        self.right_eye_buffer = BufferHandler(self.image_processor, self.blink_model_right, self.right_eye_stats,
-                                              self.batch_size, 'right')
 
         # List to store processed frames
         self.processed_frames: list[FrameInfo] = []
@@ -78,8 +85,8 @@ class BlinkPredictor:
     def initialize_recording_directory(self):
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.session_save_dir = os.path.join(self.base_save_dir, timestamp)
-        os.makedirs(os.path.join(self.session_save_dir, 'left_eyes'))
-        os.makedirs(os.path.join(self.session_save_dir, 'right_eyes'))
+        for eye in self.eyes:
+            os.makedirs(os.path.join(self.session_save_dir, f'{eye.value}_eyes'))
 
     def add_frame_to_processing_queue(self, frame_info: FrameInfo) -> None:
         """Add a frame to the processing queue."""
@@ -95,9 +102,11 @@ class BlinkPredictor:
             start_time = time.time()
             frame_info = self.processing_queue.get()
 
-            # Handle processing for left and right eyes separately
-            self.left_eye_buffer.handle(frame_info.left_eye_img, frame_info)
-            self.right_eye_buffer.handle(frame_info.right_eye_img, frame_info)
+            # Handle processing for available eyes
+            for eye, buffer in self.eye_buffers.items():
+                eye_data = frame_info.eyes.get(eye)
+                if eye_data is not None:
+                    buffer.handle(eye_data.img, frame_info)
 
             if self.export_recording_data:
                 # Save frame images
@@ -116,8 +125,9 @@ class BlinkPredictor:
         if self.export_recording_data:
             self.initialize_recording_directory()
         # 1. Reset blink statistics
-        self.left_eye_stats = BlinkStatistics()
-        self.right_eye_stats = BlinkStatistics()
+        self.eye_stats = {eye: BlinkStatistics() for eye in self.eyes}
+        self.left_eye_stats = self.eye_stats.get(Eye.LEFT, BlinkStatistics())
+        self.right_eye_stats = self.eye_stats.get(Eye.RIGHT, BlinkStatistics())
 
         # 2. Clear the processing queue
         while not self.processing_queue.empty():
@@ -125,31 +135,28 @@ class BlinkPredictor:
             self.processing_queue.task_done()
 
         # 3. Recreate the blink prediction models
-        self.blink_model_left = BlinkModel(self.batch_size)
-        self.blink_model_right = BlinkModel(self.batch_size)
+        self.blink_models = {eye: BlinkModel(self.batch_size) for eye in self.eyes}
 
         # 4. Clear the processed frames list
         self.processed_frames.clear()
 
         # 5. Reset buffers
-        self.left_eye_buffer = BufferHandler(self.image_processor, self.blink_model_left, self.left_eye_stats,
-                                             self.batch_size, 'left')
-        self.right_eye_buffer = BufferHandler(self.image_processor, self.blink_model_right, self.right_eye_stats,
-                                              self.batch_size, 'right')
+        self.eye_buffers = {
+            eye: BufferHandler(self.image_processor, self.blink_models[eye], self.eye_stats[eye],
+                               self.batch_size, eye) for eye in self.eyes
+        }
 
     def save_frame_data(self, frame_info: FrameInfo):
-        left_eye_path = os.path.join(self.session_save_dir, 'left_eyes', f"left_eye_{frame_info.frame_num}.jpg")
-        right_eye_path = os.path.join(self.session_save_dir, 'right_eyes', f"right_eye_{frame_info.frame_num}.jpg")
-
-        frame_info.left_eye_img.save(left_eye_path)
-        frame_info.right_eye_img.save(right_eye_path)
+        for eye, eye_info in frame_info.eyes.items():
+            eye_path = os.path.join(self.session_save_dir, f'{eye.value}_eyes', f"{eye.value}_eye_{frame_info.frame_num}.jpg")
+            eye_info.img.save(eye_path)
 
     def end_recording_session(self) -> None:
         # Wait until the queue is completely processed
         self.processing_queue.join()
         # Process the remaining frames in the buffers
-        self.left_eye_buffer.process_remaining()
-        self.right_eye_buffer.process_remaining()
+        for buffer in self.eye_buffers.values():
+            buffer.process_remaining()
 
         """Processes any final tasks at the end of a recording session."""
         if self.export_recording_data and self.session_save_dir and self.processed_frames:
@@ -165,7 +172,7 @@ class BufferHandler:
     """
 
     def __init__(self, image_processor: 'ImageProcessor', blink_model: 'BlinkModel', blink_stats: 'BlinkStatistics',
-                 batch_size: int, eye: str):
+                 batch_size: int, eye: Eye):
         # Initialize image processor, blink model, and blink statistics
         self.image_processor = image_processor
         self.blink_model = blink_model
@@ -194,15 +201,13 @@ class BufferHandler:
 
         for i, (is_blinking, blink_probability, closed_eye_probability) in enumerate(blink_predictions):
             self.blink_stats.update_blink_stats(is_blinking)
-            if frame_info_refs[WINDOW_SIZE // 2 + i] is not None:
-                if self.eye == 'left':
-                    frame_info_refs[WINDOW_SIZE // 2 + i].left_eye_pred = is_blinking
-                    frame_info_refs[WINDOW_SIZE // 2 + i].left_eye_blink_prob = blink_probability
-                    frame_info_refs[WINDOW_SIZE // 2 + i].left_eye_closed_prob = closed_eye_probability
-                else:
-                    frame_info_refs[WINDOW_SIZE // 2 + i].right_eye_pred = is_blinking
-                    frame_info_refs[WINDOW_SIZE // 2 + i].right_eye_blink_prob = blink_probability
-                    frame_info_refs[WINDOW_SIZE // 2 + i].right_eye_closed_prob = closed_eye_probability
+            frame_ref = frame_info_refs[WINDOW_SIZE // 2 + i]
+            if frame_ref is not None:
+                eye_data = frame_ref.eyes.get(self.eye)
+                if eye_data is not None:
+                    eye_data.pred = is_blinking
+                    eye_data.blink_prob = blink_probability
+                    eye_data.closed_prob = closed_eye_probability
 
         # Reset the buffer by removing batch_size elements
         self.buffer = self.buffer[self.batch_size:]
