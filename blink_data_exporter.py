@@ -1,35 +1,47 @@
-import pandas as pd
-from typing import List
-from frame_info import FrameInfo
 import os
-from openpyxl.utils import get_column_letter
+from typing import List, Optional, Set
+
+import pandas as pd
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+
+from frame_info import Eye, FrameInfo
 
 
 class BlinkDataExporter:
-    def __init__(self, session_save_dir: str, frame_rate: float):
+    def __init__(self, session_save_dir: str, frame_rate: float, eyes: Optional[List[Eye]] = None):
         self.session_save_dir = session_save_dir
         self.frame_rate = frame_rate
+        self.eyes: Optional[List[Eye]] = eyes
 
-    def export_all_blink_data_to_excel(self, processed_frames: List[FrameInfo]) -> None:
-        excel_file_path = f'{self.session_save_dir}/blink_data.xlsx'
-        with pd.ExcelWriter(excel_file_path, engine='openpyxl') as writer:
-            types = ['frame', 'left', 'right']
+    def export_all_blink_data_to_excel(self, processed_frames: List[FrameInfo], eyes: Optional[List[Eye]] = None) -> None:
+        eyes_to_use = eyes if eyes is not None else self.eyes
+        if eyes_to_use is None:
+            inferred: Set[Eye] = set()
+            for frame in processed_frames:
+                inferred.update(frame.eyes.keys())
+            eyes_to_use = sorted(inferred, key=lambda e: e.value)
+        self.eyes = list(eyes_to_use)
+
+        excel_file_path = f"{self.session_save_dir}/blink_data.xlsx"
+        with pd.ExcelWriter(excel_file_path, engine="openpyxl") as writer:
+            types = ["frame"] + [eye.value for eye in self.eyes]
+
             # Create and write summary sheets first
             for eye_type in types:
                 sequences = self._identify_blink_sequences(processed_frames, eye_type)
                 summary_stats = self._generate_summary_statistics(sequences, processed_frames, eye_type)
                 summary_df = pd.DataFrame([summary_stats])
-                summary_df.to_excel(writer, sheet_name=f'{eye_type.capitalize()} Blinks Summary', index=False)
+                summary_df.to_excel(writer, sheet_name=f"{eye_type.capitalize()} Blinks Summary", index=False)
 
             # Then create detailed sequence data sheets
             for eye_type in types:
                 sequence_data = self._generate_sequence_data(processed_frames, eye_type)
-                sequence_data.to_excel(writer, sheet_name=f'{eye_type.capitalize()} Blink Data', index=False)
+                sequence_data.to_excel(writer, sheet_name=f"{eye_type.capitalize()} Blink Data", index=False)
 
             # Export frame-level data as the last sheet
             frame_data = self._generate_frame_data(processed_frames)
-            frame_data.to_excel(writer, sheet_name='Frame Predictions', index=False)
+            frame_data.to_excel(writer, sheet_name="Frame Predictions", index=False)
         self._adjust_column_widths(excel_file_path)
 
     def generate_report_from_csv(self, csv_file_path: str) -> None:
@@ -44,25 +56,28 @@ class BlinkDataExporter:
         # Read the CSV file
         df = pd.read_csv(csv_file_path, sep=";")
 
-        # Convert DataFrame to list of FrameInfo objects
-        frame_info_list = []
-        for index, row in df.iterrows():
-            frame_info = FrameInfo(
-                frame_num=row['Frame Number'],
-                left_eye_pred=row['Left Eye Blink Prediction'],
-                left_eye_blink_prob=row['Left Eye Blink Probability'],
-                left_eye_closed_prob=row['Left Eye Closed Probability'],
-                right_eye_pred=row['Right Eye Blink Prediction'],
-                right_eye_blink_prob=row['Right Eye Blink Probability'],
-                right_eye_closed_prob=row['Right Eye Closed Probability'],
-                frame_img=None,
-                frame_with_boxes=None,
-                eye_boxes=None,
-                left_eye_img=None,
-                right_eye_img=None
-            )
+        frame_info_list: List[FrameInfo] = []
+        for _, row in df.iterrows():
+            kwargs = {
+                "frame_num": row["Frame Number"],
+                "frame_img": None,
+                "frame_with_boxes": None,
+                "eye_boxes": None,
+                "eyes": None,
+                "left_eye_img": None,
+                "right_eye_img": None,
+            }
 
-            frame_info_list.append(frame_info)
+            if "Left Eye Blink Prediction" in df.columns:
+                kwargs["left_eye_pred"] = row.get("Left Eye Blink Prediction")
+                kwargs["left_eye_blink_prob"] = row.get("Left Eye Blink Probability")
+                kwargs["left_eye_closed_prob"] = row.get("Left Eye Closed Probability")
+            if "Right Eye Blink Prediction" in df.columns:
+                kwargs["right_eye_pred"] = row.get("Right Eye Blink Prediction")
+                kwargs["right_eye_blink_prob"] = row.get("Right Eye Blink Probability")
+                kwargs["right_eye_closed_prob"] = row.get("Right Eye Closed Probability")
+
+            frame_info_list.append(FrameInfo(**kwargs))
 
         return frame_info_list
 
@@ -85,22 +100,27 @@ class BlinkDataExporter:
 
         workbook.save(excel_file_path)
 
-    @staticmethod
-    def _generate_frame_data(processed_frames: List[FrameInfo]) -> pd.DataFrame:
+    def _generate_frame_data(self, processed_frames: List[FrameInfo]) -> pd.DataFrame:
         """Generates a DataFrame for frame-level data including paths, predictions, probabilities, and more."""
-        data = [{
-            'Frame Number': frame.frame_num,
-            'Left Eye Path': os.path.join('left_eyes', f"left_eye_{frame.frame_num}.jpg"),
-            'Right Eye Path': os.path.join('right_eyes', f"right_eye_{frame.frame_num}.jpg"),
-            'Left Eye Blink Prediction': frame.left_eye_pred,
-            'Left Eye Blink Probability': frame.left_eye_blink_prob,
-            'Left Eye Closed Probability': frame.left_eye_closed_prob,
-            'Right Eye Blink Prediction': frame.right_eye_pred,
-            'Right Eye Blink Probability': frame.right_eye_blink_prob,
-            'Right Eye Closed Probability': frame.right_eye_closed_prob,
-            'Average Blink Probability': (frame.left_eye_blink_prob + frame.right_eye_blink_prob) / 2,
-            'Frame Blink Prediction': 1 if ((frame.left_eye_blink_prob + frame.right_eye_blink_prob) / 2) > 0.5 else 0,
-        } for frame in processed_frames]
+        data = []
+        for frame in processed_frames:
+            row = {"Frame Number": frame.frame_num}
+            blink_probs = []
+            for eye in self.eyes:
+                eye_data = frame.eyes.get(eye)
+                label = f"{eye.value.capitalize()} Eye"
+                row[f"{label} Path"] = os.path.join(f"{eye.value}_eyes", f"{eye.value}_eye_{frame.frame_num}.jpg")
+                row[f"{label} Blink Prediction"] = eye_data.pred if eye_data else None
+                row[f"{label} Blink Probability"] = eye_data.blink_prob if eye_data else None
+                row[f"{label} Closed Probability"] = eye_data.closed_prob if eye_data else None
+                if eye_data and eye_data.blink_prob is not None:
+                    blink_probs.append(eye_data.blink_prob)
+
+            avg_blink = sum(blink_probs) / len(blink_probs) if blink_probs else None
+            row["Average Blink Probability"] = avg_blink
+            row["Frame Blink Prediction"] = 1 if avg_blink is not None and avg_blink > 0.5 else 0
+            data.append(row)
+
         return pd.DataFrame(data)
 
     def _identify_blink_sequences(self, processed_frames: List[FrameInfo], eye_type: str) -> List[List[FrameInfo]]:
@@ -144,8 +164,10 @@ class BlinkDataExporter:
         num_blinks = len(sequences)
 
         # Separate sequences into complete and incomplete blinks
-        complete_blinks_sequences = [seq for seq in sequences if any(
-            frame.left_eye_closed_prob > 0.5 or frame.right_eye_closed_prob > 0.5 for frame in seq)]
+        complete_blinks_sequences = [
+            seq for seq in sequences
+            if any(self._get_blink_probabilities(frame, eye_type)[1] > 0.5 for frame in seq)
+        ]
         incomplete_blinks_sequences = [seq for seq in sequences if seq not in complete_blinks_sequences]
         num_complete_blinks = len(complete_blinks_sequences)
         num_incomplete_blinks = len(incomplete_blinks_sequences)
@@ -163,8 +185,12 @@ class BlinkDataExporter:
 
         total_frames = len(processed_frames)
         blink_frames = sum(len(seq) for seq in sequences)
-        closed_eye_frames = sum(1 for seq in sequences for frame in seq if
-                                frame.left_eye_closed_prob > 0.5 or frame.right_eye_closed_prob > 0.5)
+        closed_eye_frames = sum(
+            1
+            for seq in sequences
+            for frame in seq
+            if self._get_blink_probabilities(frame, eye_type)[1] > 0.5
+        )
         non_blink_frames = total_frames - blink_frames
 
         # Calculate intervals between blinks
@@ -210,13 +236,24 @@ class BlinkDataExporter:
 
         return summary, interval_frames
 
-    @staticmethod
-    def _get_blink_probabilities(frame: FrameInfo, eye_type: str) -> tuple:
+    def _get_blink_probabilities(self, frame: FrameInfo, eye_type: str) -> tuple:
         """Retrieve blink and closed probabilities based on eye type."""
-        if eye_type == 'frame':
-            blink_prob = (frame.left_eye_blink_prob + frame.right_eye_blink_prob) / 2
-            closed_prob = max(frame.left_eye_closed_prob, frame.right_eye_closed_prob)
+        if eye_type == "frame":
+            blink_values = [
+                frame.eyes[eye].blink_prob
+                for eye in self.eyes
+                if eye in frame.eyes and frame.eyes[eye].blink_prob is not None
+            ]
+            closed_values = [
+                frame.eyes[eye].closed_prob
+                for eye in self.eyes
+                if eye in frame.eyes and frame.eyes[eye].closed_prob is not None
+            ]
+            blink_prob = sum(blink_values) / len(blink_values) if blink_values else 0
+            closed_prob = max(closed_values) if closed_values else 0
         else:
-            blink_prob = getattr(frame, f"{eye_type}_eye_blink_prob")
-            closed_prob = getattr(frame, f"{eye_type}_eye_closed_prob")
+            eye = Eye(eye_type)
+            eye_data = frame.eyes.get(eye)
+            blink_prob = eye_data.blink_prob if eye_data and eye_data.blink_prob is not None else 0
+            closed_prob = eye_data.closed_prob if eye_data and eye_data.closed_prob is not None else 0
         return blink_prob, closed_prob

@@ -160,7 +160,7 @@ class BlinkPredictor:
 
         """Processes any final tasks at the end of a recording session."""
         if self.export_recording_data and self.session_save_dir and self.processed_frames:
-            exporter = BlinkDataExporter(self.session_save_dir, self.frame_source.get_fps())
+            exporter = BlinkDataExporter(self.session_save_dir, self.frame_source.get_fps(), self.eyes)
             exporter.export_all_blink_data_to_excel(self.processed_frames)
 
 
