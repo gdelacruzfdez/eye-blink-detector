@@ -1,17 +1,19 @@
+import logging
+import os
 import threading
-from queue import Queue
 import time
+from queue import Queue
+
+import cv2
+from PIL import Image
 
 from blink_data_exporter import BlinkDataExporter
-from frame_info import FrameInfo, EyeData, Eye
-from eye_extractor import EyeExtractor
-from video_recorder import VideoRecorder
 from blink_predictor import BlinkPredictor
+from eye_extractor import EyeExtractor
+from frame_info import Eye, EyeData, FrameInfo
 from frame_source import FrameSource
+from video_recorder import VideoRecorder
 from webcam_capture import WebcamCapture
-from PIL import Image
-import cv2
-import os
 
 
 class EyeDetectionController:
@@ -21,6 +23,7 @@ class EyeDetectionController:
         eye_extractor: EyeExtractor,
         eyes: list[Eye] | None = None,
     ) -> None:
+        logging.info("Initializing EyeDetectionController.")
         self.cameras = WebcamCapture.get_available_cameras(5)
         self.frame_source = frame_source
         self.frame_queue = Queue()
@@ -37,6 +40,7 @@ class EyeDetectionController:
         """
         Start the eye detection and recording application.
         """
+        logging.info("Starting eye detection and recording application.")
         self.recording_thread.start()
         self.blink_predictor.start()
 
@@ -44,21 +48,25 @@ class EyeDetectionController:
         """
         Stop the eye detection and recording application.
         """
+        logging.info("Stopping eye detection and recording application.")
         self.blink_predictor.stop()
         self.video_recorder.stop_recording()  # Stop the recording explicitly
         self.stop_recording_flag.set()  # Signal the recording thread to stop
         self.recording_thread.join()  # Wait for the recording thread to finish
         self.frame_source.release()
+        logging.info("Eye detection and recording application stopped.")
 
     def toggle_recording(self):
         """
         Toggle the recording state.
         """
         if not self.video_recorder.recording:
+            logging.info("Starting recording.")
             self.frame_count = 0
             self.blink_predictor.start_new_recording_session()
             self.video_recorder.start_recording()
         else:
+            logging.info("Stopping recording.")
             self.video_recorder.stop_recording()
             self.blink_predictor.end_recording_session()
 
@@ -72,7 +80,7 @@ class EyeDetectionController:
             elapsed_time = current_time - prev_time
             if elapsed_time > 2:
                 real_fps = frame_count / elapsed_time
-                print("Real Frame Rate: {:.2f} fps".format(real_fps))
+                logging.info(f"Real Frame Rate: {real_fps:.2f} fps")
                 frame_count = 0
                 prev_time = current_time
 
@@ -86,6 +94,7 @@ class EyeDetectionController:
         """
         Switch the webcam based on the dropdown selection.
         """
+        logging.info(f"Switching camera to {selection}")
         self.frame_source.release()
         self.frame_source = WebcamCapture(int(selection))
         self.blink_predictor.frame_source = self.frame_source
@@ -128,7 +137,10 @@ class EyeDetectionController:
         return None
 
     def get_recording_duration(self):
-        if self.video_recorder.recording and self.video_recorder.start_recording_time is not None:
+        if (
+            self.video_recorder.recording
+            and self.video_recorder.start_recording_time is not None
+        ):
             return int(time.time() - self.video_recorder.start_recording_time)
         return None
 
@@ -150,6 +162,8 @@ class EyeDetectionController:
 
     @staticmethod
     def generate_report_from_csv(csv_file_path: str, frame_rate: int):
+        logging.info(f"Generating report from CSV file: {csv_file_path}")
         csv_directory = os.path.dirname(csv_file_path)
         exporter = BlinkDataExporter(csv_directory, frame_rate)
         exporter.generate_report_from_csv(csv_file_path)
+        logging.info("Finished generating report.")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 import cv2
@@ -14,7 +15,10 @@ class VideoFileCapture(FrameSource):
     """Provide frames by reading a video file using OpenCV."""
 
     def __init__(self, path: str) -> None:
+        logging.info(f"Opening video file: {path}")
         self.cap = cv2.VideoCapture(path)
+        if not self.cap.isOpened():
+            logging.error(f"Could not open video file: {path}")
 
     def get_frame(self) -> Optional[np.ndarray]:
         ret, frame = self.cap.read()
@@ -23,6 +27,7 @@ class VideoFileCapture(FrameSource):
         return None
 
     def release(self) -> None:
+        logging.info("Releasing video capture.")
         self.cap.release()
 
     def get_frame_width(self) -> int:
@@ -34,4 +39,7 @@ class VideoFileCapture(FrameSource):
     def get_fps(self) -> float:
         fps = self.cap.get(cv2.CAP_PROP_FPS)
         return fps if fps != 0 else 30
+
+    def get_frame_count(self) -> int:
+        return int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
 

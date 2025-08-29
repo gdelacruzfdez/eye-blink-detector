@@ -1,18 +1,19 @@
-import threading
-import torch
-from torchvision import transforms
-from typing import List, Dict
-from frame_info import FrameInfo, EyeData, Eye
-from model.cnn_transformer import get_blink_predictor
-from PIL import Image
-from queue import Queue
-import time
+import logging
 import os
+import threading
+import time
 from datetime import datetime
-from blink_data_exporter import BlinkDataExporter
-import csv
+from queue import Queue
+from typing import Dict, List
 
+import torch
+from PIL import Image
+from torchvision import transforms
+
+from blink_data_exporter import BlinkDataExporter
+from frame_info import Eye, FrameInfo
 from frame_source import FrameSource
+from model.cnn_transformer import get_blink_predictor
 
 # Constant defining the size of the window for processing
 WINDOW_SIZE = 32
@@ -25,8 +26,14 @@ class BlinkPredictor:
     to ensure that frames are processed without blocking the main thread.
     """
 
-    def __init__(self, frame_source: FrameSource, eyes: List[Eye] | None = None,
-                 batch_size: int = 5, base_save_dir: str = 'recordings'):
+    def __init__(
+        self,
+        frame_source: FrameSource,
+        eyes: List[Eye] | None = None,
+        batch_size: int = 5,
+        base_save_dir: str = "recordings",
+    ):
+        logging.info("Initializing BlinkPredictor.")
         self.frame_source = frame_source
         self.batch_size = batch_size
         self.eyes = eyes if eyes is not None else [Eye.LEFT, Eye.RIGHT]
@@ -42,8 +49,14 @@ class BlinkPredictor:
             eye: BlinkStatistics() for eye in self.eyes
         }
         self.eye_buffers: Dict[Eye, BufferHandler] = {
-            eye: BufferHandler(self.image_processor, self.blink_models[eye], self.eye_stats[eye],
-                               self.batch_size, eye) for eye in self.eyes
+            eye: BufferHandler(
+                self.image_processor,
+                self.blink_models[eye],
+                self.eye_stats[eye],
+                self.batch_size,
+                eye,
+            )
+            for eye in self.eyes
         }
 
         # Backwards compatible attributes
@@ -72,24 +85,36 @@ class BlinkPredictor:
 
     def start(self) -> None:
         """Start the blink prediction thread."""
+        logging.info("Starting blink prediction thread.")
         self.eye_predictor_thread.start()
 
     def stop(self) -> None:
         """Stop the blink prediction thread."""
+        logging.info("Stopping blink prediction thread.")
         self.stop_signal.set()
         self.eye_predictor_thread.join()
+        logging.info("Blink prediction thread stopped.")
 
     def set_export_recording_data(self, value: bool):
+        logging.info(f"Setting export_recording_data to {value}.")
         self.export_recording_data = value
+
+    def set_session_save_dir(self, path: str):
+        self.session_save_dir = path
+        if self.export_recording_data:
+            for eye in self.eyes:
+                os.makedirs(os.path.join(self.session_save_dir, f"{eye.value}_eyes"), exist_ok=True)
 
     def initialize_recording_directory(self):
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.session_save_dir = os.path.join(self.base_save_dir, timestamp)
         for eye in self.eyes:
-            os.makedirs(os.path.join(self.session_save_dir, f'{eye.value}_eyes'))
+            os.makedirs(os.path.join(self.session_save_dir, f"{eye.value}_eyes"))
+        logging.info(f"Initialized recording directory: {self.session_save_dir}")
 
     def add_frame_to_processing_queue(self, frame_info: FrameInfo) -> None:
         """Add a frame to the processing queue."""
+        logging.debug(f"Adding frame {frame_info.frame_num} to processing queue.")
         self.processing_queue.put(frame_info)
 
     def predict_blinks(self) -> None:
@@ -99,8 +124,8 @@ class BlinkPredictor:
                 time.sleep(0.1)
                 continue
 
-            start_time = time.time()
             frame_info = self.processing_queue.get()
+            logging.debug(f"Processing frame {frame_info.frame_num} from queue.")
 
             # Handle processing for available eyes
             for eye, buffer in self.eye_buffers.items():
@@ -117,11 +142,9 @@ class BlinkPredictor:
             # Mark the task as done
             self.processing_queue.task_done()
 
-            end_time = time.time()
-            elapsed_time = end_time - start_time
-
     def start_new_recording_session(self) -> None:
         """Resets the blink predictor by clearing statistics, the processing queue, and recreating the prediction models."""
+        logging.info("Starting new recording session.")
         if self.export_recording_data:
             self.initialize_recording_directory()
         # 1. Reset blink statistics
@@ -142,26 +165,42 @@ class BlinkPredictor:
 
         # 5. Reset buffers
         self.eye_buffers = {
-            eye: BufferHandler(self.image_processor, self.blink_models[eye], self.eye_stats[eye],
-                               self.batch_size, eye) for eye in self.eyes
+            eye: BufferHandler(
+                self.image_processor,
+                self.blink_models[eye],
+                self.eye_stats[eye],
+                self.batch_size,
+                eye,
+            )
+            for eye in self.eyes
         }
+        logging.info("New recording session started.")
 
     def save_frame_data(self, frame_info: FrameInfo):
-        for eye, eye_info in frame_info.eyes.items():
-            eye_path = os.path.join(self.session_save_dir, f'{eye.value}_eyes', f"{eye.value}_eye_{frame_info.frame_num}.jpg")
-            eye_info.img.save(eye_path)
+        if self.session_save_dir:
+            for eye, eye_info in frame_info.eyes.items():
+                eye_path = os.path.join(
+                    self.session_save_dir,
+                    f"{eye.value}_eyes",
+                    f"{eye.value}_eye_{frame_info.frame_num}.jpg",
+                )
+                eye_info.img.save(eye_path)
 
     def end_recording_session(self) -> None:
+        """Processes any final tasks at the end of a recording session."""
+        logging.info("Ending recording session.")
         # Wait until the queue is completely processed
         self.processing_queue.join()
         # Process the remaining frames in the buffers
         for buffer in self.eye_buffers.values():
             buffer.process_remaining()
 
-        """Processes any final tasks at the end of a recording session."""
         if self.export_recording_data and self.session_save_dir and self.processed_frames:
-            exporter = BlinkDataExporter(self.session_save_dir, self.frame_source.get_fps(), self.eyes)
+            exporter = BlinkDataExporter(
+                self.session_save_dir, self.frame_source.get_fps(), self.eyes
+            )
             exporter.export_all_blink_data_to_excel(self.processed_frames)
+        logging.info("Recording session ended.")
 
 
 class BufferHandler:
@@ -171,8 +210,15 @@ class BufferHandler:
     the provided batch size.
     """
 
-    def __init__(self, image_processor: 'ImageProcessor', blink_model: 'BlinkModel', blink_stats: 'BlinkStatistics',
-                 batch_size: int, eye: Eye):
+    def __init__(
+        self,
+        image_processor: "ImageProcessor",
+        blink_model: "BlinkModel",
+        blink_stats: "BlinkStatistics",
+        batch_size: int,
+        eye: Eye,
+    ):
+        logging.debug(f"Initializing BufferHandler for {eye} eye.")
         # Initialize image processor, blink model, and blink statistics
         self.image_processor = image_processor
         self.blink_model = blink_model
@@ -195,11 +241,14 @@ class BufferHandler:
         if len(self.buffer) < WINDOW_SIZE + self.batch_size:
             return
 
+        logging.debug(f"Processing buffer for {self.eye} eye.")
         stacked_frames, frame_info_refs = zip(*self.buffer)
         stacked_frames = torch.stack(stacked_frames)
         blink_predictions = self.blink_model.predict(stacked_frames)
 
-        for i, (is_blinking, blink_probability, closed_eye_probability) in enumerate(blink_predictions):
+        for i, (is_blinking, blink_probability, closed_eye_probability) in enumerate(
+            blink_predictions
+        ):
             self.blink_stats.update_blink_stats(is_blinking)
             frame_ref = frame_info_refs[WINDOW_SIZE // 2 + i]
             if frame_ref is not None:
@@ -210,10 +259,11 @@ class BufferHandler:
                     eye_data.closed_prob = closed_eye_probability
 
         # Reset the buffer by removing batch_size elements
-        self.buffer = self.buffer[self.batch_size:]
+        self.buffer = self.buffer[self.batch_size :]
 
     def process_remaining(self) -> None:
         """Process whatever is left in the buffer, padding with zero tensors using a sliding window approach."""
+        logging.debug(f"Processing remaining buffer for {self.eye} eye.")
         zero_tensor = torch.zeros_like(self.buffer[0][0])
 
         # Add zero tensors so we have at least WINDOW_SIZE + batch_size tensors
@@ -221,15 +271,21 @@ class BufferHandler:
             self.buffer.append((zero_tensor, None))
 
         # Now process the buffer until the last frames are processed
-        while any(item[1] is not None for item in self.buffer[-(WINDOW_SIZE // 2 + self.batch_size):]):
+        while any(
+            item[1] is not None
+            for item in self.buffer[-(WINDOW_SIZE // 2 + self.batch_size) :]
+        ):
             self.process_buffer()
             for _ in range(self.batch_size):
                 self.buffer.append((zero_tensor, None))
 
     def pad_initial_frames(self) -> None:
         """Pad the buffer with zero tensors for initial frames."""
+        logging.debug(f"Padding initial frames for {self.eye} eye.")
         zero_tensor = torch.zeros((3, 64, 64))
-        for _ in range(WINDOW_SIZE // 2):  # Padding half the window size, as it is centered around the current frame
+        for _ in range(
+            WINDOW_SIZE // 2
+        ):  # Padding half the window size, as it is centered around the current frame
             self.buffer.append((zero_tensor, None))
 
 
@@ -240,12 +296,16 @@ class ImageProcessor:
     """
 
     def __init__(self):
-        self.transform = transforms.Compose([
-            transforms.Resize((64, 64), interpolation=Image.BICUBIC),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225])
-        ])
+        logging.debug("Initializing ImageProcessor.")
+        self.transform = transforms.Compose(
+            [
+                transforms.Resize((64, 64), interpolation=Image.BICUBIC),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                ),
+            ]
+        )
 
     def process_image(self, image: Image.Image) -> torch.Tensor:
         return self.transform(image)
@@ -258,14 +318,23 @@ class BlinkModel:
     """
 
     def __init__(self, batch_size: int):
+        logging.debug("Initializing BlinkModel.")
         self.model = get_blink_predictor(batch_size)
 
     def predict(self, batch: torch.Tensor) -> list[tuple[int, float, float]]:
+        logging.debug("Making a prediction with the blink model.")
         with torch.no_grad():
             predictions = self.model(batch)
             _, predicted_classes = torch.max(predictions.data, 1)
 
-        return [(item, predictions[i][1].item() + predictions[i][2].item(), predictions[i][2].item()) for i, item in enumerate(predicted_classes.tolist())]
+        return [
+            (
+                item,
+                predictions[i][1].item() + predictions[i][2].item(),
+                predictions[i][2].item(),
+            )
+            for i, item in enumerate(predicted_classes.tolist())
+        ]
 
 
 class BlinkStatistics:
@@ -289,4 +358,5 @@ class BlinkStatistics:
     def update_blink_stats(self, is_blinking: bool):
         if is_blinking and not self._is_blinking:
             self._blink_count += 1
+            logging.debug(f"Blink detected. Total blinks: {self._blink_count}")
         self._is_blinking = is_blinking
