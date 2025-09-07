@@ -18,39 +18,60 @@ from controller import EyeDetectionController
 from eye_extractor import DlibEyeExtractor, EyeExtractor, SingleEyeExtractor
 from frame_info import Eye, EyeData, FrameInfo
 from video_file_capture import VideoFileCapture
+from annotator_ui import AnnotationUI
 
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the blink predictor CLI."""
     parser = argparse.ArgumentParser(
-        description="Detect blinks in a video file or a directory of video files."
+        description="Blink detection and annotation tool."
     )
-    video_group = parser.add_mutually_exclusive_group(required=True)
-    video_group.add_argument("--video", help="Path to the video file")
-    video_group.add_argument(
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # Process command
+    process_parser = subparsers.add_parser("process", help="Process videos to detect blinks.")
+    process_video_group = process_parser.add_mutually_exclusive_group(required=True)
+    process_video_group.add_argument("--video", help="Path to the video file")
+    process_video_group.add_argument(
         "--dir", help="Path to the directory containing video files"
     )
 
-    eye_group = parser.add_mutually_exclusive_group(required=True)
-    eye_group.add_argument(
+    process_eye_group = process_parser.add_mutually_exclusive_group(required=True)
+    process_eye_group.add_argument(
         "--eye",
         choices=["left", "right"],
         help="Which eye to analyze (single-eye mode)",
     )
-    eye_group.add_argument(
+    process_eye_group.add_argument(
         "--two-eyes",
         action="store_true",
         help="Detect and analyze both eyes",
     )
-    parser.add_argument(
+    process_parser.add_argument(
         "--output",
         help="Optional path to directory for results. Defaults to the current directory.",
     )
-    parser.add_argument(
+    process_parser.add_argument(
         "--export-frames",
         action="store_true",
         help="Export frames to a directory.",
     )
+
+    # Annotate command
+    annotate_parser = subparsers.add_parser("annotate", help="Annotate a video.")
+    annotate_parser.add_argument("--video", required=True, help="Path to the video file to annotate.")
+    annotate_eye_group = annotate_parser.add_mutually_exclusive_group(required=True)
+    annotate_eye_group.add_argument(
+        "--eye",
+        choices=["left", "right"],
+        help="Which eye to analyze (single-eye mode)",
+    )
+    annotate_eye_group.add_argument(
+        "--two-eyes",
+        action="store_true",
+        help="Detect and analyze both eyes",
+    )
+
     args = parser.parse_args()
     logging.info(f"Arguments parsed: {args}")
     return args
@@ -79,7 +100,6 @@ def setup_components(
     logging.info("BlinkPredictor started.")
 
     return capture, extractor, predictor, eyes
-
 
 def process_frames(
     capture: VideoFileCapture,
@@ -129,7 +149,6 @@ def process_frames(
     logging.info(f"Finished processing {frame_num} frames.")
 
     return predictor.processed_frames
-
 
 def write_csv(frames: Iterable[FrameInfo], path: str, eyes: List[Eye]) -> None:
     """Write processed frame predictions to a CSV file."""
@@ -271,10 +290,19 @@ def main() -> None:
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
     )
     args = parse_args()
-    if args.dir:
-        process_directory(args)
-    else:
-        process_video(args)
+
+    if args.command == "process":
+        if args.dir:
+            process_directory(args)
+        else:
+            process_video(args)
+    elif args.command == "annotate":
+        if args.two_eyes:
+            eyes = ["left", "right"]
+        else:
+            eyes = [args.eye]
+        app = AnnotationUI(args.video, eyes)
+        app.run()
 
 
 if __name__ == "__main__":

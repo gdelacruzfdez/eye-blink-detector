@@ -161,5 +161,12 @@ cython_debug/
 #.idea/
 
 
+# Video files
 *.avi
 *.mp4
+*.mov
+video_fabiana
+example.mov
+example
+*_analysis
+.DS_Store
