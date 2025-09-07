@@ -3,6 +3,7 @@ import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import List
+import glob
 
 import cv2
 import pandas as pd
@@ -12,9 +13,34 @@ from eye_extractor import DlibEyeExtractor
 
 
 class AnnotationUI:
-    def __init__(self, video_path: str, eyes: List[str]):
-        self.video_path = video_path
+    def __init__(self, path: str, eyes: List[str]):
         self.eyes = [eye.upper() for eye in eyes]
+        self.eye_extractor = DlibEyeExtractor()
+
+        if os.path.isdir(path):
+            self.video_list = (
+                glob.glob(os.path.join(path, "*.mp4"))
+                + glob.glob(os.path.join(path, "*.avi"))
+                + glob.glob(os.path.join(path, "*.mov"))
+            )
+            self.video_list.sort()
+            if not self.video_list:
+                messagebox.showerror("Error", f"No video files found in {path}")
+                return
+            self.video_path = self.video_list[0]
+        else:
+            self.video_list = [path]
+            self.video_path = path
+
+        self.root = tk.Tk()
+        self.root.title("Video Annotation Tool")
+        self.root.geometry("1400x800")
+
+        self.create_widgets()
+        self.load_video(self.video_path)
+
+    def load_video(self, video_path):
+        self.video_path = video_path
         self.cap = cv2.VideoCapture(video_path)
         if not self.cap.isOpened():
             messagebox.showerror("Error", f"Could not open video file: {video_path}")
@@ -35,13 +61,9 @@ class AnnotationUI:
         else:
             self.initialize_default_annotations()
 
-        self.eye_extractor = DlibEyeExtractor()
-
-        self.root = tk.Tk()
-        self.root.title("Video Annotation Tool")
-        self.root.geometry("1200x800")
-
-        self.create_widgets()
+        self.tree.delete(*self.tree.get_children())
+        self.populate_annotations_table()
+        self.display_frame()
 
     def initialize_default_annotations(self):
         for i in range(self.total_frames):
@@ -67,6 +89,10 @@ class AnnotationUI:
         main_pane = tk.PanedWindow(self.root, orient=tk.HORIZONTAL)
         main_pane.pack(fill=tk.BOTH, expand=1)
 
+        video_list_panel = tk.Frame(main_pane)
+        self.create_video_list_panel(video_list_panel)
+        main_pane.add(video_list_panel, width=200)
+
         video_panel = tk.Frame(main_pane)
         self.create_video_panel(video_panel)
         main_pane.add(video_panel, width=800)
@@ -88,6 +114,22 @@ class AnnotationUI:
         self.root.bind("0", lambda event: self.annotate_both_eyes(0))
         self.root.bind("1", lambda event: self.annotate_both_eyes(1))
         self.root.bind("2", lambda event: self.annotate_both_eyes(2))
+
+    def create_video_list_panel(self, parent):
+        label = tk.Label(parent, text="Videos", font=("Arial", 12, "bold"))
+        label.pack()
+
+        self.video_listbox = tk.Listbox(parent)
+        for video in self.video_list:
+            self.video_listbox.insert(tk.END, os.path.basename(video))
+        self.video_listbox.pack(fill=tk.BOTH, expand=1)
+        self.video_listbox.bind("<<ListboxSelect>>", self.on_video_select)
+
+    def on_video_select(self, event):
+        selection_index = self.video_listbox.curselection()
+        if selection_index:
+            video_index = selection_index[0]
+            self.load_video(self.video_list[video_index])
 
     def create_video_panel(self, parent):
         # Frame display
@@ -164,8 +206,6 @@ class AnnotationUI:
 
         self.tree.pack(fill=tk.BOTH, expand=1)
         self.tree.bind("<<TreeviewSelect>>", self.on_table_row_click)
-
-        self.populate_annotations_table()
 
     def populate_annotations_table(self, start_index=0, chunk_size=100):
         end_index = min(start_index + chunk_size, self.total_frames)
@@ -322,5 +362,4 @@ class AnnotationUI:
         logging.info(f"Annotations saved to {self.default_save_path}")
 
     def run(self):
-        self.root.after(100, self.display_frame)
         self.root.mainloop()

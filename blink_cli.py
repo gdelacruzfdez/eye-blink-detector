@@ -58,8 +58,10 @@ def parse_args() -> argparse.Namespace:
     )
 
     # Annotate command
-    annotate_parser = subparsers.add_parser("annotate", help="Annotate a video.")
-    annotate_parser.add_argument("--video", required=True, help="Path to the video file to annotate.")
+    annotate_parser = subparsers.add_parser("annotate", help="Annotate a video or a directory of videos.")
+    annotate_video_group = annotate_parser.add_mutually_exclusive_group(required=True)
+    annotate_video_group.add_argument("--video", help="Path to the video file to annotate.")
+    annotate_video_group.add_argument("--dir", help="Path to the directory of videos to annotate.")
     annotate_eye_group = annotate_parser.add_mutually_exclusive_group(required=True)
     annotate_eye_group.add_argument(
         "--eye",
@@ -301,7 +303,9 @@ def main() -> None:
             eyes = ["left", "right"]
         else:
             eyes = [args.eye]
-        app = AnnotationUI(args.video, eyes)
+        
+        path = args.video if args.video else args.dir
+        app = AnnotationUI(path, eyes)
         app.run()
 
 
