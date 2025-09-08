@@ -10,6 +10,7 @@ import os
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import cv2
+import pandas as pd
 from PIL import Image
 from tqdm import tqdm
 
@@ -239,7 +240,17 @@ def process_video(
     write_csv(frames, output_csv_path, eyes)
 
     frame_rate = capture.get_fps()
-    EyeDetectionController.generate_report_from_csv(output_csv_path, int(frame_rate))
+
+    # Check for annotation file
+    annotation_file = f"{video_path}.annotations.xlsx"
+    ground_truth_df = None
+    if os.path.exists(annotation_file):
+        logging.info(f"Found annotation file: {annotation_file}")
+        ground_truth_df = pd.read_excel(annotation_file)
+
+    EyeDetectionController.generate_report_from_csv(
+        output_csv_path, int(frame_rate), eyes, ground_truth_df
+    )
 
     left_blinks = predictor.left_eye_stats.blink_count
     right_blinks = predictor.right_eye_stats.blink_count

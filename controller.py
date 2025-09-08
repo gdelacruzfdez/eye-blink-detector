@@ -3,8 +3,10 @@ import os
 import threading
 import time
 from queue import Queue
+from typing import List, Optional
 
 import cv2
+import pandas as pd
 from PIL import Image
 
 from blink_data_exporter import BlinkDataExporter
@@ -161,9 +163,16 @@ class EyeDetectionController:
         return self.frame_source.get_frame_height()
 
     @staticmethod
-    def generate_report_from_csv(csv_file_path: str, frame_rate: int):
+    def generate_report_from_csv(
+        csv_file_path: str,
+        frame_rate: int,
+        eyes: List[Eye],
+        ground_truth_df: Optional[pd.DataFrame] = None,
+    ):
         logging.info(f"Generating report from CSV file: {csv_file_path}")
         csv_directory = os.path.dirname(csv_file_path)
-        exporter = BlinkDataExporter(csv_directory, frame_rate)
+        exporter = BlinkDataExporter(
+            csv_directory, frame_rate, eyes=eyes, ground_truth_df=ground_truth_df
+        )
         exporter.generate_report_from_csv(csv_file_path)
         logging.info("Finished generating report.")
