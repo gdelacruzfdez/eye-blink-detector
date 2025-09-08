@@ -168,11 +168,15 @@ class EyeDetectionController:
         frame_rate: int,
         eyes: List[Eye],
         ground_truth_df: Optional[pd.DataFrame] = None,
-    ):
+        video_id: int = 1,
+    ) -> pd.DataFrame:
         logging.info(f"Generating report from CSV file: {csv_file_path}")
         csv_directory = os.path.dirname(csv_file_path)
         exporter = BlinkDataExporter(
-            csv_directory, frame_rate, eyes=eyes, ground_truth_df=ground_truth_df
+            csv_directory,
+            frame_rate,
+            eyes=eyes,
+            ground_truth_df=ground_truth_df,
+            video_id=video_id,
         )
-        exporter.generate_report_from_csv(csv_file_path)
-        logging.info("Finished generating report.")
+        return exporter.generate_report_from_csv(csv_file_path)

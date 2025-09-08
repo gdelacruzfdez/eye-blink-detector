@@ -20,6 +20,7 @@ from eye_extractor import DlibEyeExtractor, EyeExtractor, SingleEyeExtractor
 from frame_info import Eye, EyeData, FrameInfo
 from video_file_capture import VideoFileCapture
 from annotator_ui import AnnotationUI
+from evaluator import BlinkDetectionEvaluator
 
 
 def parse_args() -> argparse.Namespace:
@@ -201,7 +202,8 @@ def write_summary_csv(summary_data: List[Dict[str, Any]], output_dir: str) -> No
 def process_video(
     args: argparse.Namespace,
     video_path: str | None = None,
-) -> Dict[str, Any] | None:
+    video_id: int = 1,
+) -> Optional[pd.DataFrame]:
     """Process a single video file."""
     if video_path is None:
         video_path = args.video
@@ -248,22 +250,11 @@ def process_video(
         logging.info(f"Found annotation file: {annotation_file}")
         ground_truth_df = pd.read_excel(annotation_file)
 
-    EyeDetectionController.generate_report_from_csv(
-        output_csv_path, int(frame_rate), eyes, ground_truth_df
+    df = EyeDetectionController.generate_report_from_csv(
+        output_csv_path, int(frame_rate), eyes, ground_truth_df, video_id
     )
 
-    left_blinks = predictor.left_eye_stats.blink_count
-    right_blinks = predictor.right_eye_stats.blink_count
-
-    logging.info(f"Finished processing {video_filename}")
-    logging.info(f"  - Left eye blinks: {left_blinks}")
-    logging.info(f"  - Right eye blinks: {right_blinks}")
-
-    return {
-        "video": video_filename,
-        "left_blinks": left_blinks,
-        "right_blinks": right_blinks,
-    }
+    return df
 
 
 def process_directory(args: argparse.Namespace) -> None:
@@ -285,18 +276,18 @@ def process_directory(args: argparse.Namespace) -> None:
 
     logging.info(f"Found {len(video_files)} video files to process.")
 
-    summary_data = []
-    for video_file in tqdm(video_files, desc="Processing videos", leave=True, position=0):
-        summary = process_video(args, video_file)
-        if summary:
-            summary_data.append(summary)
+    all_dfs = []
+    for i, video_file in enumerate(tqdm(video_files, desc="Processing videos", leave=True, position=0)):
+        df = process_video(args, video_file, i + 1)
+        if df is not None:
+            all_dfs.append(df)
 
-    if summary_data:
-        output_dir = args.output or "."
-        write_summary_csv(summary_data, output_dir)
-        logging.info(
-            f"\nSummary report generated at {os.path.join(output_dir, 'summary.csv')}"
-        )
+    if all_dfs:
+        full_df = pd.concat(all_dfs)
+        evaluator = BlinkDetectionEvaluator()
+        results = evaluator.evaluate(full_df)
+        logging.info(f"Evaluation results: {results}")
+
 
 def main() -> None:
     logging.basicConfig(

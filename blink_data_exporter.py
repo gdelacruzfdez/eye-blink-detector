@@ -16,16 +16,18 @@ class BlinkDataExporter:
         frame_rate: float,
         eyes: Optional[List[Eye]] = None,
         ground_truth_df: Optional[pd.DataFrame] = None,
+        video_id: int = 1,
     ):
         logging.info("Initializing BlinkDataExporter.")
         self.session_save_dir = session_save_dir
         self.frame_rate = frame_rate
         self.eyes: List[Eye] = eyes if eyes is not None else [Eye.LEFT, Eye.RIGHT]
         self.ground_truth_df = ground_truth_df
+        self.video_id = video_id
 
     def export_all_blink_data_to_excel(
         self, processed_frames: List[FrameInfo]
-    ) -> None:
+    ) -> pd.DataFrame:
         logging.info("Exporting all blink data to Excel.")
 
         excel_file_path = os.path.join(self.session_save_dir, "blink_data.xlsx")
@@ -38,12 +40,12 @@ class BlinkDataExporter:
 
         self._adjust_column_widths(excel_file_path)
         logging.info("Finished exporting all blink data to Excel.")
+        return frame_data
 
-    def generate_report_from_csv(self, csv_file_path: str) -> None:
+    def generate_report_from_csv(self, csv_file_path: str) -> pd.DataFrame:
         logging.info(f"Generating report from CSV: {csv_file_path}")
         processed_frames = self.read_csv_and_convert_to_frameinfo(csv_file_path)
-        self.export_all_blink_data_to_excel(processed_frames)
-        logging.info("Finished generating report from CSV.")
+        return self.export_all_blink_data_to_excel(processed_frames)
 
     def read_csv_and_convert_to_frameinfo(self, csv_file_path: str) -> List[FrameInfo]:
         logging.info(f"Reading CSV and converting to FrameInfo: {csv_file_path}")
@@ -106,7 +108,7 @@ class BlinkDataExporter:
             for eye in self.eyes:
                 eye_data = frame.eyes.get(eye)
                 record = {
-                    "video": os.path.basename(self.session_save_dir),
+                    "video": self.video_id,
                     "frameId": frame.frame_num,
                     "eye": eye.value.upper(),
                     "pred_blink": eye_data.pred if eye_data else None,
